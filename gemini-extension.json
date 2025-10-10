@@ -1,0 +1,11 @@
+{
+  "contextFileName": "GEMINI.md",
+  "description": "Gemini CLI extension for Kubernetes.",
+  "mcpServers": {
+    "kubeapi": {
+      "command": "${extensionPath}${/}kubeapi-mcp"
+    }
+  },
+  "name": "kubeapi-mcp",
+  "version": "v0.1.0"
+}
