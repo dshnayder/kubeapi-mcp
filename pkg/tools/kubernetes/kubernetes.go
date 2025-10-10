@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -285,10 +286,30 @@ To delete a *Secret* named *api-keys* from the *production* namespace, you would
 * *Namespace*: *"production"*
 `
 
+// APIResourcesToolDescription contains the documentation for the List API Resources tool.
+// It is formatted in Markdown.
+const APIResourcesToolDescription = `
+This tool lists the API resources available in the cluster. This is the equivalent of running *kubectl api-resources*.
+
+***
+
+## What "Listing API Resources" Means
+
+In Kubernetes, "listing API resources" means querying the API server to discover all the resource types it supports. This includes core resources like *Pods* and *Services*, as well as Custom Resource Definitions (CRDs) that extend the Kubernetes API.
+
+The tool returns a table that provides the following information for each resource:
+* **NAME**: The plural, lowercase name of the resource (e.g., *pods*).
+* **SHORTNAMES**: A comma-separated list of short names or aliases (e.g., *po* for *pods*).
+* **APIVERSION**: The API group and version (e.g., *v1*, *apps/v1*).
+* **NAMESPACED**: A boolean indicating whether the resource is namespaced (*true*) or cluster-scoped (*false*).
+* **KIND**: The CamelCase name of the resource kind (e.g., *Pod*).
+`
+
 type handlers struct {
 	c      *config.Config
 	dyn    dynamic.Interface
 	mapper meta.RESTMapper
+	dc     *discovery.DiscoveryClient
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -316,6 +337,7 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		c:      c,
 		dyn:    dyn,
 		mapper: mapper,
+		dc:     dc,
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -337,6 +359,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kubernetes_delete_resource",
 		Description: DeleteResourceToolDescription,
 	}, h.deleteResource)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kubernetes_api_resources",
+		Description: APIResourcesToolDescription,
+	}, h.apiResources)
 
 	return nil
 }
@@ -464,6 +491,40 @@ func (h *handlers) deleteResource(ctx context.Context, _ *mcp.CallToolRequest, a
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: fmt.Sprintf("Resource %s/%s deleted.", args.Resource, args.Name)},
+		},
+	}, nil, nil
+}
+
+type apiResourcesArgs struct{}
+
+func (h *handlers) apiResources(ctx context.Context, _ *mcp.CallToolRequest, args *apiResourcesArgs) (*mcp.CallToolResult, any, error) {
+	_, resourceLists, err := h.dc.ServerGroupsAndResources()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get server groups and resources: %w", err)
+	}
+
+	var output strings.Builder
+	output.WriteString("NAME\tSHORTNAMES\tAPIVERSION\tNAMESPACED\tKIND\n")
+
+	for _, list := range resourceLists {
+		gv, err := schema.ParseGroupVersion(list.GroupVersion)
+		if err != nil {
+			continue
+		}
+		for _, resource := range list.APIResources {
+			output.WriteString(fmt.Sprintf("%s\t%s\t%s\t%t\t%s\n",
+				resource.Name,
+				strings.Join(resource.ShortNames, ","),
+				gv.String(),
+				resource.Namespaced,
+				resource.Kind,
+			))
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
 }
