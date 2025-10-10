@@ -18,7 +18,6 @@ import (
 	"context"
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
-	"github.com/dmitryshnayder/kubeapi-mcp/pkg/prompts/cost"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
