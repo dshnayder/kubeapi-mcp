@@ -200,8 +200,6 @@ func startMCPServer(ctx context.Context, opts startOptions) {
 	}
 }
 
-
-
 func installOptions() (*install.InstallOptions, error) {
 	return install.NewInstallOptions(
 		version,

@@ -15,13 +15,16 @@
 package kubernetes
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -29,86 +32,22 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
-// GetResourceToolDescription contains the documentation for the Get Kubernetes Resource tool.
+// GetResourcesToolDescription contains the documentation for the Get Kubernetes Resources tool.
 // It is formatted in Markdown.
-const GetResourceToolDescription = `
-This tool retrieves a specific Kubernetes resource from the cluster's API server.
+const GetResourcesToolDescription = `
+This tool retrieves one or more Kubernetes resources from the cluster's API server.
 
 ***
 
-## What "Getting a Resource" Means
+## What "Getting Resources" Means
 
-In Kubernetes, "getting a resource" means fetching its **live state and specification** from the API server. This is the equivalent of running the *kubectl get* command. The server returns the complete object definition, which includes its desired state (the *spec*) and its current, observed state (the *status*). This allows you to inspect the configuration and current health of any resource within the cluster.
-
-## Resource Format: YAML
-
-The resource definition is returned in **YAML (YAML Ain't Markup Language)** format. YAML is a human-readable data serialization standard that Kubernetes uses to define all its objects. It uses indentation to represent data structure, making it easy to read and manage complex configurations.
-
-For example, a simple Pod definition in YAML looks like this:
-
-` + "```" + `yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: my-pod
-  namespace: default
-spec:
-  containers:
-  - name: my-container
-    image: nginx
-` + "```" + `
-
-***
-
-## How to Specify a Resource
-
-To retrieve a specific resource, you must provide its coordinates within the Kubernetes API. The *getResourceArgs* structure defines the necessary arguments to uniquely identify any resource.
-
-` + "```" + `go
-// The actual struct includes JSON tags. They are omitted here for clarity.
-// Refer to the source code for the complete definition.
-getResourceArgs struct {
-    Group     string
-    Version   string
-    Resource  string
-    Name      string
-    Namespace string
-}
-` + "```" + `
-
-### Argument Breakdown
-
-* *Group*: The API group the resource belongs to. API groups help organize resources. For example, Deployments are in the *apps* group, and Jobs are in the *batch* group. Core resources, like Pods and Services, belong to the core API group, which is specified as an empty string (*""*).
-* *Version*: The version of the API group, such as *v1* or *v1beta1*. This ensures API compatibility as Kubernetes evolves.
-* *Resource*: The **plural, lowercase name** for the resource type (e.g., *pods*, *deployments*, *services*, *configmaps*).
-* *Name*: The case-sensitive name of the specific resource instance you want to retrieve (e.g., *my-app-deployment*, *nginx-pod-123*).
-* *Namespace*: The namespace where the resource exists. This is an optional field because some resources, like *Nodes* or *PersistentVolumes*, are **cluster-scoped** and do not belong to any namespace. For namespaced resources like *Pods* or *Deployments*, if you omit this, it will typically default to the *default* namespace.
-
-### Example
-
-To get a *Deployment* named *frontend-app* from the *production* namespace, you would structure the arguments like this:
-
-* *Group*: *"apps"*
-* *Version*: *"v1"*
-* *Resource*: *"deployments"*
-* *Name*: *"frontend-app"*
-* *Namespace*: *"production"*
-`
-
-// ListResourcesToolDescription contains the documentation for the List Kubernetes Resources tool.
-// It is formatted in Markdown.
-const ListResourcesToolDescription = `
-This tool retrieves a list of Kubernetes resources of a specific type from the cluster's API server.
-
-***
-
-## What "Listing Resources" Means
-
-In Kubernetes, "listing resources" means fetching the **live state and specifications** for all resources that match a specific type within a given scope (e.g., within a namespace or across the entire cluster). This is the equivalent of running a command like *kubectl get pods -n my-namespace*. The server returns a collection of complete object definitions.
+In Kubernetes, "getting resources" means fetching the **live state and specifications** for all resources that match a specific type within a given scope (e.g., within a namespace or across the entire cluster). This is the equivalent of running a command like *kubectl get pods -n my-namespace*. If a name is specified, it will fetch a single resource, equivalent to *kubectl get pod my-pod*. The server returns a collection of complete object definitions.
 ## Response Format: A List of YAML Documents
 
 The tool returns a list of resources, with each resource formatted as a complete **YAML** document. The list of YAML documents are concatenated together, separated by the standard YAML document separator (*---*).
@@ -135,26 +74,24 @@ spec:
 
 ***
 
-## How to Specify a Resource Type to List
+## How to Specify Resources to Get
 
-To list resources, you must specify the type you are interested in. The *listResourcesArgs* structure defines the necessary arguments.
+To get resources, you must specify the type you are interested in. The *getResourcesArgs* structure defines the necessary arguments.
 
 ` + "```" + `go
 // The actual struct includes JSON tags. They are omitted here for clarity.
 // Refer to the source code for the complete definition.
-listResourcesArgs struct {
-    Group     string
-    Version   string
+getResourcesArgs struct {
     Resource  string
+    Name      string
     Namespace string
 }
 ` + "```" + `
 
 ### Argument Breakdown
 
-* *Group*: The API group the resource belongs to. For example, Deployments are in the *apps* group. Core resources like Pods belong to the core API group, specified as an empty string (*""*).
-* *Version*: The version of the API group, such as *v1* or *v1beta1*.
 * *Resource*: The **plural, lowercase name** for the resource type (e.g., *pods*, *deployments*, *services*).
+* *Name*: (Optional) The case-sensitive name of the specific resource instance you want to retrieve (e.g., *my-app-deployment*, *nginx-pod-123*). If omitted, all resources of the specified type will be returned.
 * *Namespace*: (Optional) The namespace from which to list resources.
     * If you provide a namespace, the tool will only list resources from that specific namespace.
     * If this field is **omitted** for a namespaced resource type (like *Pods*), it will list resources from **all namespaces**.
@@ -164,8 +101,6 @@ listResourcesArgs struct {
 
 To list all *Services* in the *kube-system* namespace, you would structure the arguments like this:
 
-* *Group*: *""*
-* *Version*: *"v1"*
 * *Resource*: *"services"*
 * *Namespace*: *"kube-system"*
 `
@@ -251,8 +186,6 @@ To delete a specific resource, you must provide its coordinates within the Kuber
 // The actual struct includes JSON tags. They are omitted here for clarity.
 // Refer to the source code for the complete definition.
 deleteResourceArgs struct {
-    Group     string
-    Version   string
     Resource  string
     Name      string
     Namespace string
@@ -261,8 +194,6 @@ deleteResourceArgs struct {
 
 ### Argument Breakdown
 
-* *Group*: The API group the resource belongs to (e.g., *apps* for Deployments). The core API group is specified as an empty string (*""*).
-* *Version*: The version of the API group, such as *v1* or *v1beta1*.
 * *Resource*: The **plural, lowercase name** for the resource type (e.g., *pods*, *deployments*, *secrets*).
 * *Name*: The case-sensitive name of the specific resource instance you want to delete.
 * *Namespace*: The namespace where the resource exists. This field must be provided for namespaced resources. For cluster-scoped resources like *Nodes*, it should be omitted.
@@ -279,8 +210,6 @@ Resource <resource-type>/<resource-name> deleted.
 
 To delete a *Secret* named *api-keys* from the *production* namespace, you would structure the arguments like this:
 
-* *Group*: *""*
-* *Version*: *"v1"*
 * *Resource*: *"secrets"*
 * *Name*: *"api-keys"*
 * *Namespace*: *"production"*
@@ -305,11 +234,55 @@ The tool returns a table that provides the following information for each resour
 * **KIND**: The CamelCase name of the resource kind (e.g., *Pod*).
 `
 
+// GetPodLogsToolDescription contains the documentation for the Get Kubernetes Pod Logs tool.
+// It is formatted in Markdown.
+const GetPodLogsToolDescription = `
+This tool retrieves logs from a specific pod in the cluster.
+
+***
+
+## What "Getting Pod Logs" Means
+
+In Kubernetes, "getting pod logs" means fetching the output from the containers running within a pod. This is the equivalent of running a command like *kubectl logs my-pod -n my-namespace*.
+
+The tool returns the raw log output as a string.
+
+***
+
+## How to Specify a Pod to Get Logs From
+
+To get logs from a pod, you must specify the pod's name and namespace. You can also optionally specify a container name if the pod has multiple containers.
+
+` + "```" + `go
+// The actual struct includes JSON tags. They are omitted here for clarity.
+// Refer to the source code for the complete definition.
+getPodLogsArgs struct {
+    Name      string
+    Namespace string
+    Container string
+}
+` + "```" + `
+
+### Argument Breakdown
+
+* *Name*: The case-sensitive name of the pod.
+* *Namespace*: The namespace where the pod exists.
+* *Container*: (Optional) The name of the container to get logs from. If omitted, and the pod has multiple containers, an error will be returned.
+
+### Example
+
+To get logs from a pod named *my-app-pod-123* in the *production* namespace, you would structure the arguments like this:
+
+* *Name*: *"my-app-pod-123"*
+* *Namespace*: *"production"*
+`
+
 type handlers struct {
-	c      *config.Config
-	dyn    dynamic.Interface
-	mapper meta.RESTMapper
-	dc     *discovery.DiscoveryClient
+	c         *config.Config
+	dyn       dynamic.Interface
+	mapper    meta.RESTMapper
+	dc        *discovery.DiscoveryClient
+	clientset kubernetes.Interface
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -320,6 +293,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	restConfig, err := kubeConfig.ClientConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create clientset: %w", err)
 	}
 
 	dyn, err := dynamic.NewForConfig(restConfig)
@@ -334,21 +312,17 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
 
 	h := &handlers{
-		c:      c,
-		dyn:    dyn,
-		mapper: mapper,
-		dc:     dc,
+		c:         c,
+		dyn:       dyn,
+		mapper:    mapper,
+		dc:        dc,
+		clientset: clientset,
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_get_resource",
-		Description: GetResourceToolDescription,
-	}, h.getResource)
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_list_resources",
-		Description: ListResourcesToolDescription,
-	}, h.listResources)
+		Name:        "kubernetes_get_resources",
+		Description: GetResourcesToolDescription,
+	}, h.getResources)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kubernetes_apply_resource",
@@ -365,66 +339,72 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Description: APIResourcesToolDescription,
 	}, h.apiResources)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kubernetes_get_pod_logs",
+		Description: GetPodLogsToolDescription,
+	}, h.getPodLogs)
+
 	return nil
 }
 
-type getResourceArgs struct {
-	Group     string `json:"group"`
-	Version   string `json:"version"`
+type getResourcesArgs struct {
 	Resource  string `json:"resource"`
-	Name      string `json:"name"`
+	Name      string `json:"name,omitempty"`
 	Namespace string `json:"namespace,omitempty"`
 }
 
-func (h *handlers) getResource(ctx context.Context, _ *mcp.CallToolRequest, args *getResourceArgs) (*mcp.CallToolResult, any, error) {
-	gvr := schema.GroupVersionResource{Group: args.Group, Version: args.Version, Resource: args.Resource}
-	var obj *unstructured.Unstructured
-	var err error
-	if args.Namespace != "" {
-		obj, err = h.dyn.Resource(gvr).Namespace(args.Namespace).Get(ctx, args.Name, metav1.GetOptions{})
+func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, args *getResourcesArgs) (*mcp.CallToolResult, any, error) {
+	gvr, err := h.findGVR(args.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	var resources []unstructured.Unstructured
+
+	if args.Name != "" {
+		var obj *unstructured.Unstructured
+		var err error
+		if args.Namespace != "" {
+			obj, err = h.dyn.Resource(gvr).Namespace(args.Namespace).Get(ctx, args.Name, metav1.GetOptions{})
+		} else {
+			obj, err = h.dyn.Resource(gvr).Get(ctx, args.Name, metav1.GetOptions{})
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		resources = append(resources, *obj)
 	} else {
-		obj, err = h.dyn.Resource(gvr).Get(ctx, args.Name, metav1.GetOptions{})
+		var list *unstructured.UnstructuredList
+		var err error
+		if args.Namespace != "" {
+			list, err = h.dyn.Resource(gvr).Namespace(args.Namespace).List(ctx, metav1.ListOptions{})
+		} else {
+			list, err = h.dyn.Resource(gvr).List(ctx, metav1.ListOptions{})
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		resources = list.Items
 	}
-	if err != nil {
-		return nil, nil, err
+
+	var yamlDocs []string
+	for _, item := range resources {
+		// Convert Unstructured to JSON
+		jsonData, err := json.Marshal(item.Object)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		}
+
+		// Convert JSON to YAML
+		yamlData, err := yaml.JSONToYAML(jsonData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
+		}
+		yamlDocs = append(yamlDocs, string(yamlData))
 	}
-	data, err := json.MarshalIndent(obj, "", "  ")
-	if err != nil {
-		return nil, nil, err
-	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-	}, nil, nil
-}
-
-type listResourcesArgs struct {
-	Group     string `json:"group"`
-	Version   string `json:"version"`
-	Resource  string `json:"resource"`
-	Namespace string `json:"namespace,omitempty"`
-}
-
-func (h *handlers) listResources(ctx context.Context, _ *mcp.CallToolRequest, args *listResourcesArgs) (*mcp.CallToolResult, any, error) {
-	gvr := schema.GroupVersionResource{Group: args.Group, Version: args.Version, Resource: args.Resource}
-	var list *unstructured.UnstructuredList
-	var err error
-	if args.Namespace != "" {
-		list, err = h.dyn.Resource(gvr).Namespace(args.Namespace).List(ctx, metav1.ListOptions{})
-	} else {
-		list, err = h.dyn.Resource(gvr).List(ctx, metav1.ListOptions{})
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
+			&mcp.TextContent{Text: strings.Join(yamlDocs, "---\n")},
 		},
 	}, nil, nil
 }
@@ -434,8 +414,15 @@ type applyResourceArgs struct {
 }
 
 func (h *handlers) applyResource(ctx context.Context, _ *mcp.CallToolRequest, args *applyResourceArgs) (*mcp.CallToolResult, any, error) {
+	// Convert YAML manifest to JSON
+	jsonData, err := yaml.YAMLToJSON([]byte(args.Manifest))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert manifest from YAML to JSON: %w", err)
+	}
+
+	// Unmarshal JSON into Unstructured object
 	var obj unstructured.Unstructured
-	if err := json.Unmarshal([]byte(args.Manifest), &obj); err != nil {
+	if err := obj.UnmarshalJSON(jsonData); err != nil {
 		return nil, nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
 	}
 
@@ -458,28 +445,37 @@ func (h *handlers) applyResource(ctx context.Context, _ *mcp.CallToolRequest, ar
 	if err != nil {
 		return nil, nil, err
 	}
-	data, err := json.MarshalIndent(appliedObj, "", "  ")
+
+	// Convert Unstructured to JSON for YAML conversion
+	jsonData, err = json.Marshal(appliedObj.Object)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
 	}
+
+	// Convert JSON to YAML
+	yamlData, err := yaml.JSONToYAML(jsonData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
+	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
+			&mcp.TextContent{Text: string(yamlData)},
 		},
 	}, nil, nil
 }
 
 type deleteResourceArgs struct {
-	Group     string `json:"group"`
-	Version   string `json:"version"`
 	Resource  string `json:"resource"`
 	Name      string `json:"name"`
 	Namespace string `json:"namespace,omitempty"`
 }
 
 func (h *handlers) deleteResource(ctx context.Context, _ *mcp.CallToolRequest, args *deleteResourceArgs) (*mcp.CallToolResult, any, error) {
-	gvr := schema.GroupVersionResource{Group: args.Group, Version: args.Version, Resource: args.Resource}
-	var err error
+	gvr, err := h.findGVR(args.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
 	if args.Namespace != "" {
 		err = h.dyn.Resource(gvr).Namespace(args.Namespace).Delete(ctx, args.Name, metav1.DeleteOptions{})
 	} else {
@@ -527,4 +523,65 @@ func (h *handlers) apiResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
+}
+
+type getPodLogsArgs struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Container string `json:"container,omitempty"`
+}
+
+func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
+	podLogOpts := &corev1.PodLogOptions{
+		Container: args.Container,
+	}
+	req := h.clientset.CoreV1().Pods(args.Namespace).GetLogs(args.Name, podLogOpts)
+	podLogs, err := req.Stream(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get pod logs: %w", err)
+	}
+	defer podLogs.Close()
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, podLogs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read pod logs: %w", err)
+	}
+	logs := buf.String()
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) findGVR(resourceKind string) (schema.GroupVersionResource, error) {
+	lists, err := h.dc.ServerPreferredResources()
+	if err != nil {
+		return schema.GroupVersionResource{}, fmt.Errorf("failed to get server preferred resources: %w", err)
+	}
+
+	for _, list := range lists {
+		for _, resource := range list.APIResources {
+			if resource.Kind == resourceKind || resource.Name == resourceKind || contains(resource.ShortNames, resourceKind) {
+				gv, err := schema.ParseGroupVersion(list.GroupVersion)
+				if err != nil {
+					return schema.GroupVersionResource{}, fmt.Errorf("failed to parse group version %q: %w", list.GroupVersion, err)
+				}
+				return gv.WithResource(resource.Name), nil
+			}
+		}
+	}
+
+	return schema.GroupVersionResource{}, fmt.Errorf("resource kind %q not found", resourceKind)
+}
+
+func contains(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
 }

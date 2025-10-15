@@ -64,7 +64,7 @@ func mockAppData(t *testing.T, tmpDir string) func() {
 }
 
 // mockInput simulates user input for interactive prompts
-func mockInput(input string) func() {
+func mockInput(t *testing.T, input string) func() {
 	// Create a pipe to simulate user input
 	r, w, _ := os.Pipe()
 	oldStdin := os.Stdin
@@ -73,7 +73,8 @@ func mockInput(input string) func() {
 	// Write the input to the pipe
 	go func() {
 		defer w.Close()
-		w.WriteString(input)
+		_, _ = w.WriteString(input)
+		// No need to log here, as the test will fail if the input is not written correctly.
 	}()
 
 	// Return cleanup function
@@ -162,7 +163,7 @@ func verifyCursorInstallation(t *testing.T, baseDir string, projectOnly bool) {
 // verifyClaudeCodeInstallation checks that Claude Code installation created the expected files
 func verifyClaudeCodeInstallation(t *testing.T, installDir, testExePath string) {
 	claudeMDPath := filepath.Join(installDir, "CLAUDE.md")
-	usageGuidePath := filepath.Join(installDir, "KUBERNETES_MCP_USAGE_GUIDE.md")
+	usageGuidePath := filepath.Join(installDir, "KUBEAPI_MCP_USAGE_GUIDE.md")
 
 	// Verify CLAUDE.md exists and has correct content
 	if _, err := os.Stat(claudeMDPath); os.IsNotExist(err) {
@@ -179,18 +180,18 @@ func verifyClaudeCodeInstallation(t *testing.T, installDir, testExePath string) 
 		}
 	}
 
-	// Verify KUBERNETES_MCP_USAGE_GUIDE.md exists and has correct content
+	// Verify KUBEAPI_MCP_USAGE_GUIDE.md exists and has correct content
 	if _, err := os.Stat(usageGuidePath); os.IsNotExist(err) {
-		t.Errorf("Expected KUBERNETES_MCP_USAGE_GUIDE.md file to be created at %s, but it was not", usageGuidePath)
+		t.Errorf("Expected KUBEAPI_MCP_USAGE_GUIDE.md file to be created at %s, but it was not", usageGuidePath)
 	} else {
 		usageContent, err := os.ReadFile(usageGuidePath)
 		if err != nil {
-			t.Fatalf("Failed to read KUBERNETES_MCP_USAGE_GUIDE.md: %v", err)
+			t.Fatalf("Failed to read KUBEAPI_MCP_USAGE_GUIDE.md: %v", err)
 		}
 
 		// Verify content matches GeminiMarkdown
 		if !bytes.Equal(usageContent, GeminiMarkdown) {
-			t.Errorf("Expected KUBERNETES_MCP_USAGE_GUIDE.md content to match GeminiMarkdown")
+			t.Errorf("Expected KUBEAPI_MCP_USAGE_GUIDE.md content to match GeminiMarkdown")
 		}
 	}
 }
@@ -744,15 +745,14 @@ func TestClaudeCodeExtension(t *testing.T) {
 	tmpDir, cleanup := testSetup(t, false)
 	defer cleanup()
 
-	testExePath := "/usr/local/bin/kubeapi-mcp"
-
-	logFile, cleanupCommand := MockClaudeCommand(t)
-	defer cleanupCommand()
-
-	// Mock user input to answer "yes" to the confirmation prompt
-	cleanupInput := mockInput("yes\n")
-	defer cleanupInput()
-
+	    testExePath := "/usr/local/bin/kubeapi-mcp"
+	
+	    logFile, cleanupCommand := MockClaudeCommand(t)
+	    defer cleanupCommand()
+	
+	    // Mock user input to answer "yes" to the confirmation prompt
+	    	cleanupInput := mockInput(t, "yes\n")
+	    	defer cleanupInput()
 	opts := &InstallOptions{
 		installDir: tmpDir,
 		exePath:    testExePath,
@@ -786,7 +786,7 @@ func TestClaudeCodeExtensionWithExistingClaude(t *testing.T) {
 	defer cleanupCommand()
 
 	// Mock user input to answer "yes" to the confirmation prompt
-	cleanupInput := mockInput("yes\n")
+	cleanupInput := mockInput(t, "yes\n")
 	defer cleanupInput()
 
 	opts := &InstallOptions{
@@ -823,7 +823,7 @@ func TestClaudeCodeExtensionUserDeclines(t *testing.T) {
 	testExePath := "/usr/local/bin/kubeapi-mcp"
 
 	// Mock user input to answer "no" to the confirmation prompt
-	cleanupInput := mockInput("no\n")
+	cleanupInput := mockInput(t, "no\n")
 	defer cleanupInput()
 
 	opts := &InstallOptions{
