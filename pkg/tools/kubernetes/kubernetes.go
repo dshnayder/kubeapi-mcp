@@ -693,7 +693,7 @@ func (h *handlers) findGVR(resourceKind string) (schema.GroupVersionResource, er
 
 	for _, list := range lists {
 		for _, resource := range list.APIResources {
-			if resource.Kind == resourceKind || resource.Name == resourceKind || contains(resource.ShortNames, resourceKind) {
+			if resource.Kind == resourceKind || resource.Name == resourceKind || resource.SingularName == resourceKind || contains(resource.ShortNames, resourceKind) {
 				gv, err := schema.ParseGroupVersion(list.GroupVersion)
 				if err != nil {
 					return schema.GroupVersionResource{}, fmt.Errorf("failed to parse group version %q: %w", list.GroupVersion, err)
