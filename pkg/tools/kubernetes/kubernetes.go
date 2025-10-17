@@ -496,7 +496,9 @@ type apiResourcesArgs struct{}
 func (h *handlers) apiResources(ctx context.Context, _ *mcp.CallToolRequest, args *apiResourcesArgs) (*mcp.CallToolResult, any, error) {
 	_, resourceLists, err := h.dc.ServerGroupsAndResources()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get server groups and resources: %w", err)
+		if _, ok := err.(*discovery.ErrGroupDiscoveryFailed); !ok {
+			return nil, nil, fmt.Errorf("failed to get server groups and resources: %w", err)
+		}
 	}
 
 	var output strings.Builder
@@ -559,7 +561,9 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 func (h *handlers) findGVR(resourceKind string) (schema.GroupVersionResource, error) {
 	lists, err := h.dc.ServerPreferredResources()
 	if err != nil {
-		return schema.GroupVersionResource{}, fmt.Errorf("failed to get server preferred resources: %w", err)
+		if _, ok := err.(*discovery.ErrGroupDiscoveryFailed); !ok {
+			return schema.GroupVersionResource{}, fmt.Errorf("failed to get server preferred resources: %w", err)
+		}
 	}
 
 	for _, list := range lists {
