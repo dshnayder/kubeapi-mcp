@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
@@ -277,6 +278,62 @@ To get logs from a pod named *my-app-pod-123* in the *production* namespace, you
 * *Namespace*: *"production"*
 `
 
+// PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
+// It is formatted in Markdown.
+const PatchResourceToolDescription = `
+This tool patches a specific Kubernetes resource from the cluster.
+
+***
+
+## What "Patching a Resource" Means
+
+In Kubernetes, "patching a resource" means sending a request to the API server to partially update an object. This is the equivalent of running the *kubectl patch* command.
+
+The tool supports three types of patches:
+* **strategic-merge-patch**: The default. Merges the patch with the existing resource, following rules specific to each field.
+* **merge-patch**: Merges the patch with the existing resource. For maps, the patch's keys and values are merged with the existing map. For lists, the patch's list replaces the existing list.
+* **json-patch**: A JSON Patch is a sequence of operations (add, remove, replace, etc.) that are applied to a JSON document.
+
+***
+
+## How to Specify a Resource to Patch
+
+To patch a specific resource, you must provide its coordinates within the Kubernetes API, the patch itself, and optionally the patch type. The *patchResourceArgs* structure defines the necessary arguments.
+
+` + "```" + `go
+// The actual struct includes JSON tags. They are omitted here for clarity.
+// Refer to the source code for the complete definition.
+patchResourceArgs struct {
+    Resource  string
+    Name      string
+    Namespace string
+    Patch     string
+    PatchType string
+}
+` + "```" + `
+
+### Argument Breakdown
+
+* *Resource*: The **plural, lowercase name** for the resource type (e.g., *pods*, *deployments*, *secrets*).
+* *Name*: The case-sensitive name of the specific resource instance you want to patch.
+* *Namespace*: The namespace where the resource exists. This field must be provided for namespaced resources. For cluster-scoped resources like *Nodes*, it should be omitted.
+* *Patch*: A YAML string representing the patch.
+* *PatchType*: (Optional) The type of patch to apply. Can be *strategic*, *merge*, or *json*. Defaults to *strategic*.
+
+### Response Format
+
+The tool's response is the full YAML of the object **after** it has been patched.
+
+### Example
+
+To patch a *Deployment* named *my-app* in the *default* namespace to change the number of replicas, you would structure the arguments like this:
+
+* *Resource*: *"deployments"*
+* *Name*: *"my-app"*
+* *Namespace*: *"default"*
+* *Patch*: *'spec: {replicas: 3}'*
+`
+
 type handlers struct {
 	c         *config.Config
 	dyn       dynamic.Interface
@@ -343,6 +400,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kubernetes_get_pod_logs",
 		Description: GetPodLogsToolDescription,
 	}, h.getPodLogs)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kubernetes_patch_resource",
+		Description: PatchResourceToolDescription,
+	}, h.patchResource)
 
 	return nil
 }
@@ -554,6 +616,69 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+type patchResourceArgs struct {
+	Resource  string `json:"resource"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Patch     string `json:"patch"`
+	PatchType string `json:"patchType,omitempty"`
+}
+
+func (h *handlers) patchResource(ctx context.Context, _ *mcp.CallToolRequest, args *patchResourceArgs) (*mcp.CallToolResult, any, error) {
+	gvr, err := h.findGVR(args.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	patchType := types.StrategicMergePatchType
+	switch args.PatchType {
+	case "json":
+		patchType = types.JSONPatchType
+	case "merge":
+		patchType = types.MergePatchType
+	case "strategic":
+		patchType = types.StrategicMergePatchType
+	case "":
+		// Do nothing, use default
+	default:
+		return nil, nil, fmt.Errorf("invalid patch type %q", args.PatchType)
+	}
+
+	// Convert YAML patch to JSON
+	patchBytes, err := yaml.YAMLToJSON([]byte(args.Patch))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert patch from YAML to JSON: %w", err)
+	}
+
+	var patchedObj *unstructured.Unstructured
+	if args.Namespace != "" {
+		patchedObj, err = h.dyn.Resource(gvr).Namespace(args.Namespace).Patch(ctx, args.Name, patchType, patchBytes, metav1.PatchOptions{})
+	} else {
+		patchedObj, err = h.dyn.Resource(gvr).Patch(ctx, args.Name, patchType, patchBytes, metav1.PatchOptions{})
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Convert Unstructured to JSON for YAML conversion
+	jsonData, err := json.Marshal(patchedObj.Object)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+	}
+
+	// Convert JSON to YAML
+	yamlData, err := yaml.JSONToYAML(jsonData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(yamlData)},
 		},
 	}, nil, nil
 }
