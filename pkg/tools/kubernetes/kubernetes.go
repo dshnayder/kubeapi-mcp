@@ -483,53 +483,64 @@ type applyResourceArgs struct {
 }
 
 func (h *handlers) applyResource(ctx context.Context, _ *mcp.CallToolRequest, args *applyResourceArgs) (*mcp.CallToolResult, any, error) {
-	// Convert YAML manifest to JSON
-	jsonData, err := yaml.YAMLToJSON([]byte(args.Manifest))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to convert manifest from YAML to JSON: %w", err)
-	}
+	yamlParts := strings.Split(args.Manifest, "---")
+	var appliedYamls []string
 
-	// Unmarshal JSON into Unstructured object
-	var obj unstructured.Unstructured
-	if err := obj.UnmarshalJSON(jsonData); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
-	}
+	for _, part := range yamlParts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
 
-	gvk := obj.GroupVersionKind()
-	mapping, err := h.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get REST mapping: %w", err)
-	}
-	gvr := mapping.Resource
-	namespace := obj.GetNamespace()
-	name := obj.GetName()
+		// Convert YAML manifest to JSON
+		jsonData, err := yaml.YAMLToJSON([]byte(part))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert manifest from YAML to JSON: %w", err)
+		}
 
-	var appliedObj *unstructured.Unstructured
-	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-		appliedObj, err = h.dyn.Resource(gvr).Namespace(namespace).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
-	} else {
-		appliedObj, err = h.dyn.Resource(gvr).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
-	}
+		// Unmarshal JSON into Unstructured object
+		var obj unstructured.Unstructured
+		if err := obj.UnmarshalJSON(jsonData); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
+		}
 
-	if err != nil {
-		return nil, nil, err
-	}
+		gvk := obj.GroupVersionKind()
+		mapping, err := h.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get REST mapping: %w", err)
+		}
+		gvr := mapping.Resource
+		namespace := obj.GetNamespace()
+		name := obj.GetName()
 
-	// Convert Unstructured to JSON for YAML conversion
-	jsonData, err = json.Marshal(appliedObj.Object)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
-	}
+		var appliedObj *unstructured.Unstructured
+		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+			appliedObj, err = h.dyn.Resource(gvr).Namespace(namespace).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
+		} else {
+			appliedObj, err = h.dyn.Resource(gvr).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
+		}
 
-	// Convert JSON to YAML
-	yamlData, err := yaml.JSONToYAML(jsonData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Convert Unstructured to JSON for YAML conversion
+		appliedJson, err := json.Marshal(appliedObj.Object)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
+		}
+
+		// Convert JSON to YAML
+		yamlData, err := yaml.JSONToYAML(appliedJson)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
+		}
+		appliedYamls = append(appliedYamls, string(yamlData))
 	}
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(yamlData)},
+			&mcp.TextContent{Text: strings.Join(appliedYamls, "---\n")},
 		},
 	}, nil, nil
 }
