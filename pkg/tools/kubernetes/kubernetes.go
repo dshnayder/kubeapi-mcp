@@ -83,9 +83,10 @@ To get resources, you must specify the type you are interested in. The *getResou
 // The actual struct includes JSON tags. They are omitted here for clarity.
 // Refer to the source code for the complete definition.
 getResourcesArgs struct {
-    Resource  string
-    Name      string
-    Namespace string
+    Resource      string
+    Name          string
+    Namespace     string
+    LabelSelector string
 }
 ` + "```" + `
 
@@ -97,6 +98,7 @@ getResourcesArgs struct {
     * If you provide a namespace, the tool will only list resources from that specific namespace.
     * If this field is **omitted** for a namespaced resource type (like *Pods*), it will list resources from **all namespaces**.
     * For cluster-scoped resources (like *Nodes*), this field should be omitted.
+* *LabelSelector*: (Optional) A Kubernetes label selector to filter the resources.
 
 ### Example
 
@@ -410,9 +412,10 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 }
 
 type getResourcesArgs struct {
-	Resource  string `json:"resource"`
-	Name      string `json:"name,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
+	Resource      string `json:"resource"`
+	Name          string `json:"name,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
+	LabelSelector string `json:"labelSelector,omitempty"`
 }
 
 func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, args *getResourcesArgs) (*mcp.CallToolResult, any, error) {
@@ -437,10 +440,14 @@ func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 	} else {
 		var list *unstructured.UnstructuredList
 		var err error
+		listOptions := metav1.ListOptions{}
+		if args.LabelSelector != "" {
+			listOptions.LabelSelector = args.LabelSelector
+		}
 		if args.Namespace != "" {
-			list, err = h.dyn.Resource(gvr).Namespace(args.Namespace).List(ctx, metav1.ListOptions{})
+			list, err = h.dyn.Resource(gvr).Namespace(args.Namespace).List(ctx, listOptions)
 		} else {
-			list, err = h.dyn.Resource(gvr).List(ctx, metav1.ListOptions{})
+			list, err = h.dyn.Resource(gvr).List(ctx, listOptions)
 		}
 		if err != nil {
 			return nil, nil, err
