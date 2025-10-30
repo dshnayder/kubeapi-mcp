@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -353,6 +354,7 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to get kubeconfig: %w", err)
 	}
+	restConfig.Timeout = 30 * time.Second
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
