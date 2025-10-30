@@ -25,6 +25,7 @@ import (
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -337,6 +338,46 @@ To patch a *Deployment* named *my-app* in the *default* namespace to change the 
 * *Patch*: *'spec: {replicas: 3}'*
 `
 
+// CanIToolDescription contains the documentation for the Kubernetes Can I tool.
+// It is formatted in Markdown.
+const CanIToolDescription = `
+This tool checks if the current user can perform a specific action on a Kubernetes resource. This is the equivalent of running *kubectl auth can-i*.
+
+***
+
+## What "Can I" Means
+
+In Kubernetes, "can I" means checking if the current user's permissions (as defined by Roles and RoleBindings) allow them to perform a certain verb (like 'get', 'create', 'delete') on a specific resource (like 'pods', 'deployments') in a given namespace.
+
+The tool returns a simple "yes" or "no" answer.
+
+***
+
+## How to Use the Tool
+
+To use the tool, you must provide the verb and the resource you want to check.
+
+` + "```" + `go
+// The actual struct includes JSON tags. They are omitted here for clarity.
+// Refer to the source code for the complete definition.
+canIArgs struct {
+    Verb         string
+    Resource     string
+    Subresource  string
+    Name         string
+    Namespace    string
+}
+` + "```" + `
+
+### Argument Breakdown
+
+* *Verb*: The action you want to check (e.g., 'get', 'list', 'watch', 'create', 'update', 'patch', 'delete').
+* *Resource*: The plural, lowercase name for the resource type (e.g., 'pods', 'deployments', 'services').
+* *Subresource*: (Optional) The subresource to check (e.g., 'log', 'status').
+* *Name*: (Optional) The name of a specific resource instance to check.
+* *Namespace*: (Optional) The namespace to check the action in.
+`
+
 type handlers struct {
 	c         *config.Config
 	dyn       dynamic.Interface
@@ -410,7 +451,55 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Description: PatchResourceToolDescription,
 	}, h.patchResource)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kubernetes_can_i",
+		Description: CanIToolDescription,
+	}, h.canI)
+
 	return nil
+}
+
+func (h *handlers) canI(ctx context.Context, _ *mcp.CallToolRequest, args *canIArgs) (*mcp.CallToolResult, any, error) {
+	sar := &authorizationv1.SelfSubjectAccessReview{
+		Spec: authorizationv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authorizationv1.ResourceAttributes{
+				Verb:        args.Verb,
+				Resource:    args.Resource,
+				Subresource: args.Subresource,
+				Name:        args.Name,
+				Namespace:   args.Namespace,
+			},
+		},
+	}
+
+	response, err := h.clientset.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, sar, metav1.CreateOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create self subject access review: %w", err)
+	}
+
+	var result string
+	if response.Status.Allowed {
+		result = "yes"
+	} else {
+		result = "no"
+		if response.Status.Reason != "" {
+			result += fmt.Sprintf(" (reason: %s)", response.Status.Reason)
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: result},
+		},
+	}, nil, nil
+}
+
+type canIArgs struct {
+	Verb        string `json:"verb"`
+	Resource    string `json:"resource"`
+	Subresource string `json:"subresource,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
 }
 
 type getResourcesArgs struct {
