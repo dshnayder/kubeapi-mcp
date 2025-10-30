@@ -515,9 +515,9 @@ func (h *handlers) applyResource(ctx context.Context, _ *mcp.CallToolRequest, ar
 
 		var appliedObj *unstructured.Unstructured
 		if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-			appliedObj, err = h.dyn.Resource(gvr).Namespace(namespace).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
+			appliedObj, err = h.dyn.Resource(gvr).Namespace(namespace).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp", Force: true})
 		} else {
-			appliedObj, err = h.dyn.Resource(gvr).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp"})
+			appliedObj, err = h.dyn.Resource(gvr).Apply(ctx, name, &obj, metav1.ApplyOptions{FieldManager: "kubeapi-mcp", Force: true})
 		}
 
 		if err != nil {
