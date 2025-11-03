@@ -27,6 +27,7 @@ import (
 	"cloud.google.com/go/logging/logadmin"
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/api/container/v1"
 	"google.golang.org/api/iterator"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -383,13 +384,26 @@ canIArgs struct {
 * *Namespace*: (Optional) The namespace to check the action in.
 `
 
+// GKEGetClusterToolDescription contains the documentation for the Get GKE Cluster tool.
+// It is formatted in Markdown.
+const GKEGetClusterToolDescription = `
+Get / describe a GKE cluster. Prefer to use this tool instead of gcloud
+`
+
+type gkeGetClusterArgs struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Location  string `json:"location"`
+	Name      string `json:"name"`
+}
+
 type handlers struct {
-	c              *config.Config
-	dyn            dynamic.Interface
-	mapper         meta.RESTMapper
-	dc             *discovery.DiscoveryClient
-	clientset      kubernetes.Interface
-	logadminClient *logadmin.Client
+	c                 *config.Config
+	dyn               dynamic.Interface
+	mapper            meta.RESTMapper
+	dc                *discovery.DiscoveryClient
+	clientset         kubernetes.Interface
+	logadminClient    *logadmin.Client
+	containerService *container.Service
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -424,6 +438,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		return fmt.Errorf("failed to create logadmin client: %w", err)
 	}
 
+	containerService, err := container.NewService(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create container service: %w", err)
+	}
+
 	h := &handlers{
 		c:              c,
 		dyn:            dyn,
@@ -431,6 +450,7 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		dc:             dc,
 		clientset:      clientset,
 		logadminClient: logadminClient,
+		containerService: containerService,
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -454,16 +474,25 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}, h.canI)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_query_logs",
-		Description: QueryLogsToolDescription,
+		Name:        "gke_read_logs",
+		Description: GKEReadLogsToolDescription,
 	}, h.queryLogs)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gke_get_log_schema",
+		Description: GKEGetLogSchemaToolDescription,
+	}, h.getLogSchema)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gke_get_cluster",
+		Description: GKEGetClusterToolDescription,
+	}, h.gkeGetCluster)
 
 	if !c.ReadOnly() {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "kubernetes_apply_resource",
 			Description: ApplyResourceToolDescription,
 		}, h.applyResource)
-
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "kubernetes_delete_resource",
 			Description: DeleteResourceToolDescription,
@@ -474,8 +503,137 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 			Description: PatchResourceToolDescription,
 		}, h.patchResource)
 
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "gke_update_node_pool",
+			Description: GKEUpdateNodePoolToolDescription,
+		}, h.gkeUpdateNodePool)
+
 	}
 	return nil
+}
+
+func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetClusterArgs) (*mcp.CallToolResult, any, error) {
+	projectID := args.ProjectID
+	if projectID == "" {
+		projectID = h.c.DefaultProjectID()
+	}
+	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, args.Location, args.Name)
+	cluster, err := h.containerService.Projects.Locations.Clusters.Get(name).Context(ctx).Do()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get cluster: %w", err)
+	}
+	b, err := json.Marshal(cluster)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal cluster: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
+}
+
+
+// GKEUpdateNodePoolToolDescription contains the documentation for the GKE Update Node Pool tool.
+// It is formatted in Markdown.
+const GKEUpdateNodePoolToolDescription = `
+Update a GKE node pool. This is similar to "gcloud container node-pools update".
+`
+
+type gkeUpdateNodePoolArgs struct {
+	ProjectID   string `json:"project_id,omitempty"`
+	Location    string `json:"location"`
+	ClusterName string `json:"cluster_name"`
+	NodePoolID  string `json:"node_pool_id"`
+	NodeVersion string `json:"node_version,omitempty"`
+	MachineType string `json:"machine_type,omitempty"`
+}
+
+func (h *handlers) gkeUpdateNodePool(ctx context.Context, _ *mcp.CallToolRequest, args *gkeUpdateNodePoolArgs) (*mcp.CallToolResult, any, error) {
+	projectID := args.ProjectID
+	if projectID == "" {
+		projectID = h.c.DefaultProjectID()
+	}
+	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/nodePools/%s", projectID, args.Location, args.ClusterName, args.NodePoolID)
+	req := &container.UpdateNodePoolRequest{}
+	if args.NodeVersion != "" {
+		req.NodeVersion = args.NodeVersion
+	}
+	if args.MachineType != "" {
+		req.MachineType = args.MachineType
+	}
+	op, err := h.containerService.Projects.Locations.Clusters.NodePools.Update(name, req).Context(ctx).Do()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to update node pool: %w", err)
+	}
+	b, err := json.Marshal(op)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal operation: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) getLogSchema(ctx context.Context, _ *mcp.CallToolRequest, args *getLogSchemaArgs) (*mcp.CallToolResult, any, error) {
+	schemas := map[string]string{
+		"k8s_audit_logs": `
+resource.type="k8s_audit"
+resource.labels.cluster_name="CLUSTER_NAME"
+resource.labels.location="CLUSTER_LOCATION"
+log_id("cloudaudit.googleapis.com/activity")
+
+protoPayload.methodName="METHOD_NAME"
+protoPayload.serviceName="k8s.io"
+protoPayload.resourceName="RESOURCE_NAME"
+
+# Example: Get all audit logs for a specific cluster
+resource.type="k8s_audit" AND resource.labels.cluster_name="my-cluster" AND resource.labels.location="us-central1"
+
+# Example: Get audit logs for pod creations
+resource.type="k8s_audit" AND protoPayload.methodName="io.k8s.core.v1.pods.create"
+
+# Example: Get audit logs for a specific user
+resource.type="k8s_audit" AND protoPayload.authenticationInfo.principalEmail="user@example.com"
+`,
+		"k8s_application_logs": `
+resource.type="k8s_container"
+resource.labels.cluster_name="CLUSTER_NAME"
+resource.labels.location="CLUSTER_LOCATION"
+resource.labels.pod_name="POD_NAME"
+resource.labels.namespace_name="NAMESPACE_NAME"
+
+# Example: Get all application logs for a specific pod
+resource.type="k8s_container" AND resource.labels.cluster_name="my-cluster" AND resource.labels.pod_name="my-pod"
+
+# Example: Get error logs from a specific namespace
+resource.type="k8s_container" AND resource.labels.namespace_name="production" AND severity=ERROR
+`,
+		"k8s_event_logs": `
+resource.type="k8s_events"
+resource.labels.cluster_name="CLUSTER_NAME"
+resource.labels.location="CLUSTER_LOCATION"
+
+# Example: Get all event logs for a specific cluster
+resource.type="k8s_events" AND resource.labels.cluster_name="my-cluster"
+
+# Example: Get warning events
+resource.type="k8s_events" AND severity=WARNING
+`,
+	}
+
+	schema, ok := schemas[args.LogType]
+	if !ok {
+		return nil, nil, fmt.Errorf("unsupported log type: %s. Supported values are: %v", args.LogType, []string{"k8s_audit_logs", "k8s_application_logs", "k8s_event_logs"})
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: schema},
+		},
+	}, nil, nil
 }
 
 func (h *handlers) canI(ctx context.Context, _ *mcp.CallToolRequest, args *canIArgs) (*mcp.CallToolResult, any, error) {
@@ -513,10 +671,10 @@ func (h *handlers) canI(ctx context.Context, _ *mcp.CallToolRequest, args *canIA
 	}, nil, nil
 }
 
-// QueryLogsToolDescription contains the documentation for the Query Google Cloud Platform Logs tool.
+// GKEReadLogsToolDescription contains the documentation for the GKE Read Logs tool.
 // It is formatted in Markdown.
-const QueryLogsToolDescription = `
-Query Google Cloud Platform logs using Logging Query Language (LQL). Before using this tool, it's **strongly** recommended to call the 'get_log_schema' tool to get information about supported log types and their schemas. Logs are returned in ascending order, based on the timestamp (i.e. oldest first).
+const GKEReadLogsToolDescription = `
+This tool reads GKE logs using the Google Cloud Logging API. This is the equivalent of running "gcloud logging read". Before using this tool, it's **strongly** recommended to call the 'get_log_schema' tool to get information about supported log types and their schemas. Logs are returned in ascending order, based on the timestamp (i.e. oldest first).
 
 ***
 
@@ -553,6 +711,17 @@ queryLogsTimeRangeArgs struct {
     * *StartTime*: Start time for log query (RFC3339 format)
     * *EndTime*: End time for log query (RFC3339 format)
 `
+
+// GKEGetLogSchemaToolDescription contains the documentation for the GKE Get Log Schema tool.
+// It is formatted in Markdown.
+const GKEGetLogSchemaToolDescription = `
+Get the schema for a specific log type.
+`
+
+type getLogSchemaArgs struct {
+	LogType string `json:"log_type"`
+}
+
 type canIArgs struct {
 	Verb        string `json:"verb"`
 	Resource    string `json:"resource"`
