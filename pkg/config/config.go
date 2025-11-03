@@ -15,6 +15,8 @@
 package config
 
 import (
+	"bytes"
+	"context"
 	"log"
 	"os/exec"
 	"strings"
@@ -26,6 +28,16 @@ type Config struct {
 	defaultLocation  string
 	readOnly         bool
 }
+
+func (c *Config) Exec(ctx context.Context, name string, arg ...string) (string, string, error) {
+	cmd := exec.CommandContext(ctx, name, arg...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
 
 func (c *Config) UserAgent() string {
 	return c.userAgent

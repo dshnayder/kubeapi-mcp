@@ -21,10 +21,13 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"text/template"
 	"time"
 
+	"cloud.google.com/go/logging/logadmin"
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/api/iterator"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -379,11 +382,12 @@ canIArgs struct {
 `
 
 type handlers struct {
-	c         *config.Config
-	dyn       dynamic.Interface
-	mapper    meta.RESTMapper
-	dc        *discovery.DiscoveryClient
-	clientset kubernetes.Interface
+	c              *config.Config
+	dyn            dynamic.Interface
+	mapper         meta.RESTMapper
+	dc             *discovery.DiscoveryClient
+	clientset      kubernetes.Interface
+	logadminClient *logadmin.Client
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -413,12 +417,18 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
 
+	logadminClient, err := logadmin.NewClient(ctx, c.DefaultProjectID())
+	if err != nil {
+		return fmt.Errorf("failed to create logadmin client: %w", err)
+	}
+
 	h := &handlers{
-		c:         c,
-		dyn:       dyn,
-		mapper:    mapper,
-		dc:        dc,
-		clientset: clientset,
+		c:              c,
+		dyn:            dyn,
+		mapper:         mapper,
+		dc:             dc,
+		clientset:      clientset,
+		logadminClient: logadminClient,
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -440,6 +450,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kubernetes_can_i",
 		Description: CanIToolDescription,
 	}, h.canI)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kubernetes_query_logs",
+		Description: QueryLogsToolDescription,
+	}, h.queryLogs)
 
 	if !c.ReadOnly() {
 		mcp.AddTool(s, &mcp.Tool{
@@ -496,6 +511,46 @@ func (h *handlers) canI(ctx context.Context, _ *mcp.CallToolRequest, args *canIA
 	}, nil, nil
 }
 
+// QueryLogsToolDescription contains the documentation for the Query Google Cloud Platform Logs tool.
+// It is formatted in Markdown.
+const QueryLogsToolDescription = `
+Query Google Cloud Platform logs using Logging Query Language (LQL). Before using this tool, it's **strongly** recommended to call the 'get_log_schema' tool to get information about supported log types and their schemas. Logs are returned in ascending order, based on the timestamp (i.e. oldest first).
+
+***
+
+## How to Query Logs
+
+To query logs, you must provide an LQL query string and the GCP project ID. You can also specify an output format, a limit on the number of entries, a relative time duration, or an explicit time range.
+
+` + "```" + `go
+// The actual struct includes JSON tags. They are omitted here for clarity.
+// Refer to the source code for the complete definition.
+queryLogsArgs struct {
+	Query     string
+	ProjectID string
+	Format    string
+	Limit     int
+	Since     string
+	TimeRange *queryLogsTimeRangeArgs
+}
+
+queryLogsTimeRangeArgs struct {
+	StartTime string
+	EndTime   string
+}
+` + "```" + `
+
+### Argument Breakdown
+
+* *Query*: LQL query string to filter and retrieve log entries. Don't specify time ranges in this filter. Use 'time_range' instead.
+* *ProjectID*: GCP project ID to query logs from. Required.
+* *Format*: Go template string to format each log entry. If empty, the full JSON representation is returned. Note that empty fields are not included in the response. Example: '{{.timestamp}} [{{.severity}}] {{.textPayload}}'. It's strongly recommended to use a template to minimize the size of the response and only include the fields you need. Use the get_schema tool before this tool to get information about supported log types and their schemas.
+* *Limit*: Maximum number of log entries to return. Cannot be greater than 100. Consider multiple calls if needed. Defaults to 10.
+* *Since*: Only return logs newer than a relative duration like 5s, 2m, or 3h. The only supported units are seconds ('s'), minutes ('m'), and hours ('h').
+* *TimeRange*: Time range for log query. If empty, no restrictions are applied.
+    * *StartTime*: Start time for log query (RFC3339 format)
+    * *EndTime*: End time for log query (RFC3339 format)
+`
 type canIArgs struct {
 	Verb        string `json:"verb"`
 	Resource    string `json:"resource"`
@@ -503,6 +558,21 @@ type canIArgs struct {
 	Name        string `json:"name,omitempty"`
 	Namespace   string `json:"namespace,omitempty"`
 }
+
+type queryLogsArgs struct {
+	Query     string `json:"query"`
+	ProjectID string `json:"project_id"`
+	Format    string `json:"format,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Since     string `json:"since,omitempty"`
+	TimeRange *queryLogsTimeRangeArgs `json:"time_range,omitempty"`
+}
+
+type queryLogsTimeRangeArgs struct {
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+}
+
 
 type getResourcesArgs struct {
 	Resource      string `json:"resource"`
@@ -790,6 +860,63 @@ func (h *handlers) patchResource(ctx context.Context, _ *mcp.CallToolRequest, ar
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(yamlData)},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) queryLogs(ctx context.Context, _ *mcp.CallToolRequest, args *queryLogsArgs) (*mcp.CallToolResult, any, error) {
+	filter := args.Query
+	if args.Since != "" {
+		d, err := time.ParseDuration(args.Since)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid since duration: %w", err)
+		}
+		filter += fmt.Sprintf(` timestamp >= "%s"`, time.Now().Add(-d).Format(time.RFC3339))
+	}
+	if args.TimeRange != nil {
+		filter += fmt.Sprintf(` timestamp >= "%s" AND timestamp <= "%s"`, args.TimeRange.StartTime, args.TimeRange.EndTime)
+	}
+
+	it := h.logadminClient.Entries(ctx, logadmin.Filter(filter))
+	var result strings.Builder
+	limit := 10
+	if args.Limit > 0 {
+		limit = args.Limit
+	}
+
+	tmpl, err := template.New("log").Parse(args.Format)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid format template: %w", err)
+	}
+
+	for i := 0; i < limit; i++ {
+		entry, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get next log entry: %w", err)
+		}
+
+		if args.Format != "" {
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, entry); err != nil {
+				return nil, nil, fmt.Errorf("failed to execute template: %w", err)
+			}
+			result.WriteString(buf.String())
+		} else {
+			b, err := json.Marshal(entry)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to marshal log entry: %w", err)
+			}
+			result.Write(b)
+		}
+		result.WriteString("\n")
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: result.String()},
 		},
 	}, nil, nil
 }
