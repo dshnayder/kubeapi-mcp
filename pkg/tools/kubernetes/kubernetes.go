@@ -268,6 +268,7 @@ getPodLogsArgs struct {
     Name      string
     Namespace string
     Container string
+    Previous  bool
 }
 ` + "```" + `
 
@@ -276,6 +277,7 @@ getPodLogsArgs struct {
 * *Name*: The case-sensitive name of the pod.
 * *Namespace*: The namespace where the pod exists.
 * *Container*: (Optional) The name of the container to get logs from. If omitted, and the pod has multiple containers, an error will be returned.
+* *Previous*: (Optional) If true, return logs from the previous instantiation of the container.
 
 ### Example
 
@@ -774,11 +776,13 @@ type getPodLogsArgs struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	Container string `json:"container,omitempty"`
+	Previous  bool   `json:"previous,omitempty"`
 }
 
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
+		Previous:  args.Previous,
 	}
 	req := h.clientset.CoreV1().Pods(args.Namespace).GetLogs(args.Name, podLogOpts)
 	podLogs, err := req.Stream(ctx)
