@@ -19,6 +19,7 @@ import (
 
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/config"
 	"github.com/dmitryshnayder/kubeapi-mcp/pkg/tools/kubernetes"
+	"github.com/dmitryshnayder/kubeapi-mcp/pkg/tools/udt"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -27,6 +28,7 @@ type installer func(ctx context.Context, s *mcp.Server, c *config.Config) error
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	installers := []installer{
 		kubernetes.Install,
+		udt.Install,
 	}
 
 	for _, installer := range installers {

@@ -27,6 +27,7 @@ type Config struct {
 	defaultProjectID string
 	defaultLocation  string
 	readOnly         bool
+	udtPath          string
 }
 
 func (c *Config) Exec(ctx context.Context, name string, arg ...string) (string, string, error) {
@@ -37,7 +38,6 @@ func (c *Config) Exec(ctx context.Context, name string, arg ...string) (string, 
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
 }
-
 
 func (c *Config) UserAgent() string {
 	return c.userAgent
@@ -55,12 +55,17 @@ func (c *Config) ReadOnly() bool {
 	return c.readOnly
 }
 
-func New(version string, readOnly bool) *Config {
+func (c *Config) UDTPath() string {
+	return c.udtPath
+}
+
+func New(version string, readOnly bool, udtPath string) *Config {
 	return &Config{
 		userAgent:        "kubeapi-mcp/" + version,
 		defaultProjectID: getDefaultProjectID(),
 		defaultLocation:  getDefaultLocation(),
 		readOnly:         readOnly,
+		udtPath:          udtPath,
 	}
 }
 

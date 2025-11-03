@@ -42,6 +42,7 @@ var (
 	serverMode string
 	serverPort int
 	readOnly   bool
+	udtPath    string
 
 	// rootCmd represents the base command when called without any subcommands
 	rootCmd = &cobra.Command{
@@ -102,6 +103,7 @@ func init() {
 	rootCmd.Flags().StringVar(&serverMode, "server-mode", "stdio", "transport to use for the server: stdio (default) or http")
 	rootCmd.Flags().IntVar(&serverPort, "server-port", 8080, "server port to use when server-mode is http; defaults to 8080")
 	rootCmd.Flags().BoolVar(&readOnly, "read-only", false, "run in read-only mode")
+	rootCmd.Flags().StringVar(&udtPath, "udt", "", "Path to the UDT playbook directory")
 	rootCmd.AddCommand(installCmd)
 
 	installCmd.AddCommand(installGeminiCLICmd)
@@ -120,6 +122,7 @@ type startOptions struct {
 	serverMode string
 	serverPort int
 	readOnly   bool
+	udtPath    string
 }
 
 func runRootCmd(cmd *cobra.Command, args []string) {
@@ -127,12 +130,13 @@ func runRootCmd(cmd *cobra.Command, args []string) {
 		serverMode: serverMode,
 		serverPort: serverPort,
 		readOnly:   readOnly,
+		udtPath:    udtPath,
 	}
 	startMCPServer(cmd.Context(), opts)
 }
 
 func startMCPServer(ctx context.Context, opts startOptions) {
-	c := config.New(version, opts.readOnly)
+	c := config.New(version, opts.readOnly, opts.udtPath)
 
 	instructions := ""
 
