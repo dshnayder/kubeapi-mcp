@@ -45,6 +45,124 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// GKEGetClusterToolDescription contains the documentation for the Get GKE Cluster tool.
+// It is formatted in Markdown.
+const GKEGetClusterToolDescription = `
+Gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
+
+This tool calls the GKE API's projects.locations.clusters.get method.
+`
+
+// GKEListClustersToolDescription contains the documentation for the GKE List Clusters tool.
+// It is formatted in Markdown.
+const GKEListClustersToolDescription = `
+Lists all clusters owned by a project in either the specified zone or all zones. This is equivalent to running "gcloud container clusters list".
+
+This tool calls the GKE API's projects.locations.clusters.list method.
+`
+
+// GKEUpdateNodePoolToolDescription contains the documentation for the GKE Update Node Pool tool.
+// It is formatted in Markdown.
+const GKEUpdateNodePoolToolDescription = `
+Updates the settings of a specific node pool. This is similar to "gcloud container node-pools update".
+
+This tool calls the GKE API's projects.locations.clusters.nodePools.update method.
+`
+
+type gkeUpdateNodePoolArgs struct {
+	ProjectID         string `json:"project_id,omitempty"`
+	Location          string `json:"location"`
+	ClusterName       string `json:"cluster_name"`
+	NodePoolID        string `json:"node_pool_id"`
+	NodeVersion       string `json:"node_version,omitempty"`
+	MachineType       string `json:"machine_type,omitempty"`
+	EnableAutoscaling *bool  `json:"enable_autoscaling,omitempty"`
+	MinNodes          *int64 `json:"min_nodes,omitempty"`
+	MaxNodes          *int64 `json:"max_nodes,omitempty"`
+	TotalMinNodes     *int64 `json:"total_min_nodes,omitempty"`
+	TotalMaxNodes     *int64 `json:"total_max_nodes,omitempty"`
+}
+
+func (h *handlers) gkeUpdateNodePool(ctx context.Context, _ *mcp.CallToolRequest, args *gkeUpdateNodePoolArgs) (*mcp.CallToolResult, any, error) {
+	projectID := args.ProjectID
+	if projectID == "" {
+		projectID = h.c.DefaultProjectID()
+	}
+	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/nodePools/%s", projectID, args.Location, args.ClusterName, args.NodePoolID)
+
+	if args.NodeVersion != "" || args.MachineType != "" {
+		req := &container.UpdateNodePoolRequest{}
+		if args.NodeVersion != "" {
+			req.NodeVersion = args.NodeVersion
+		}
+		if args.MachineType != "" {
+			req.MachineType = args.MachineType
+		}
+		op, err := h.containerService.Projects.Locations.Clusters.NodePools.Update(name, req).Context(ctx).Do()
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to update node pool: %w", err)
+		}
+		b, err := json.Marshal(op)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal operation: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(b)},
+			},
+		}, nil, nil
+	}
+
+	autoscaling := &container.NodePoolAutoscaling{}
+	if args.EnableAutoscaling != nil {
+		autoscaling.Enabled = *args.EnableAutoscaling
+	}
+	if args.MinNodes != nil {
+		autoscaling.MinNodeCount = *args.MinNodes
+	}
+	if args.MaxNodes != nil {
+		autoscaling.MaxNodeCount = *args.MaxNodes
+	}
+	if args.TotalMinNodes != nil {
+		autoscaling.TotalMinNodeCount = *args.TotalMinNodes
+	}
+	if args.TotalMaxNodes != nil {
+		autoscaling.TotalMaxNodeCount = *args.TotalMaxNodes
+	}
+
+	req := &container.SetNodePoolAutoscalingRequest{
+		Autoscaling: autoscaling,
+	}
+
+	op, err := h.containerService.Projects.Locations.Clusters.NodePools.SetAutoscaling(name, req).Context(ctx).Do()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to update node pool autoscaling: %w", err)
+	}
+	b, err := json.Marshal(op)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal operation: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
+}
+
+// GKEReadLogsToolDescription contains the documentation for the GKE Read Logs tool.
+// It is formatted in Markdown.
+const GKEReadLogsToolDescription = `
+This tool reads GKE logs using the Google Cloud Logging API. This is the equivalent of running "gcloud logging read". Before using this tool, it's **strongly** recommended to call the 'get_log_schema' tool to get information about supported log types and their schemas. Logs are returned in ascending order, based on the timestamp (i.e. oldest first).
+
+This tool calls the Google Cloud Logging API's entries.list method.
+`
+
+// GKEGetLogSchemaToolDescription contains the documentation for the GKE Get Log Schema tool.
+// It is formatted in Markdown.
+const GKEGetLogSchemaToolDescription = `
+Get the schema for a specific log type, which can be used with the gke_read_logs tool. This tool provides example queries and field names for different log types.
+`
+
 // GetResourcesToolDescription contains the documentation for the Get Kubernetes Resources tool.
 // It is formatted in Markdown.
 const GetResourcesToolDescription = `
@@ -384,11 +502,7 @@ canIArgs struct {
 * *Namespace*: (Optional) The namespace to check the action in.
 `
 
-// GKEGetClusterToolDescription contains the documentation for the Get GKE Cluster tool.
-// It is formatted in Markdown.
-const GKEGetClusterToolDescription = `
-Get / describe a GKE cluster. Prefer to use this tool instead of gcloud
-`
+
 
 type gkeGetClusterArgs struct {
 	ProjectID string `json:"project_id,omitempty"`
@@ -488,6 +602,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Description: GKEGetClusterToolDescription,
 	}, h.gkeGetCluster)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gke_list_clusters",
+		Description: GKEListClustersToolDescription,
+	}, h.gkeListClusters)
+
 	if !c.ReadOnly() {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "kubernetes_apply_resource",
@@ -512,6 +631,38 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	return nil
 }
 
+
+
+type gkeListClustersArgs struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Location  string `json:"location,omitempty"`
+}
+
+func (h *handlers) gkeListClusters(ctx context.Context, _ *mcp.CallToolRequest, args *gkeListClustersArgs) (*mcp.CallToolResult, any, error) {
+	projectID := args.ProjectID
+	if projectID == "" {
+		projectID = h.c.DefaultProjectID()
+	}
+	location := args.Location
+	if location == "" {
+		location = "-"
+	}
+	parent := fmt.Sprintf("projects/%s/locations/%s", projectID, location)
+	resp, err := h.containerService.Projects.Locations.Clusters.List(parent).Context(ctx).Do()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list clusters: %w", err)
+	}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal clusters: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
+}
+
 func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetClusterArgs) (*mcp.CallToolResult, any, error) {
 	projectID := args.ProjectID
 	if projectID == "" {
@@ -534,48 +685,9 @@ func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, ar
 }
 
 
-// GKEUpdateNodePoolToolDescription contains the documentation for the GKE Update Node Pool tool.
-// It is formatted in Markdown.
-const GKEUpdateNodePoolToolDescription = `
-Update a GKE node pool. This is similar to "gcloud container node-pools update".
-`
 
-type gkeUpdateNodePoolArgs struct {
-	ProjectID   string `json:"project_id,omitempty"`
-	Location    string `json:"location"`
-	ClusterName string `json:"cluster_name"`
-	NodePoolID  string `json:"node_pool_id"`
-	NodeVersion string `json:"node_version,omitempty"`
-	MachineType string `json:"machine_type,omitempty"`
-}
 
-func (h *handlers) gkeUpdateNodePool(ctx context.Context, _ *mcp.CallToolRequest, args *gkeUpdateNodePoolArgs) (*mcp.CallToolResult, any, error) {
-	projectID := args.ProjectID
-	if projectID == "" {
-		projectID = h.c.DefaultProjectID()
-	}
-	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/nodePools/%s", projectID, args.Location, args.ClusterName, args.NodePoolID)
-	req := &container.UpdateNodePoolRequest{}
-	if args.NodeVersion != "" {
-		req.NodeVersion = args.NodeVersion
-	}
-	if args.MachineType != "" {
-		req.MachineType = args.MachineType
-	}
-	op, err := h.containerService.Projects.Locations.Clusters.NodePools.Update(name, req).Context(ctx).Do()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to update node pool: %w", err)
-	}
-	b, err := json.Marshal(op)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal operation: %w", err)
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(b)},
-		},
-	}, nil, nil
-}
+
 
 func (h *handlers) getLogSchema(ctx context.Context, _ *mcp.CallToolRequest, args *getLogSchemaArgs) (*mcp.CallToolResult, any, error) {
 	schemas := map[string]string{
@@ -671,52 +783,9 @@ func (h *handlers) canI(ctx context.Context, _ *mcp.CallToolRequest, args *canIA
 	}, nil, nil
 }
 
-// GKEReadLogsToolDescription contains the documentation for the GKE Read Logs tool.
-// It is formatted in Markdown.
-const GKEReadLogsToolDescription = `
-This tool reads GKE logs using the Google Cloud Logging API. This is the equivalent of running "gcloud logging read". Before using this tool, it's **strongly** recommended to call the 'get_log_schema' tool to get information about supported log types and their schemas. Logs are returned in ascending order, based on the timestamp (i.e. oldest first).
 
-***
 
-## How to Query Logs
 
-To query logs, you must provide an LQL query string and the GCP project ID. You can also specify an output format, a limit on the number of entries, a relative time duration, or an explicit time range.
-
-` + "```" + `go
-// The actual struct includes JSON tags. They are omitted here for clarity.
-// Refer to the source code for the complete definition.
-queryLogsArgs struct {
-	Query     string
-	ProjectID string
-	Format    string
-	Limit     int
-	Since     string
-	TimeRange *queryLogsTimeRangeArgs
-}
-
-queryLogsTimeRangeArgs struct {
-	StartTime string
-	EndTime   string
-}
-` + "```" + `
-
-### Argument Breakdown
-
-* *Query*: LQL query string to filter and retrieve log entries. Don't specify time ranges in this filter. Use 'time_range' instead.
-* *ProjectID*: GCP project ID to query logs from. Required.
-* *Format*: Go template string to format each log entry. If empty, the full JSON representation is returned. Note that empty fields are not included in the response. Example: '{{.timestamp}} [{{.severity}}] {{.textPayload}}'. It's strongly recommended to use a template to minimize the size of the response and only include the fields you need. Use the get_schema tool before this tool to get information about supported log types and their schemas.
-* *Limit*: Maximum number of log entries to return. Cannot be greater than 100. Consider multiple calls if needed. Defaults to 10.
-* *Since*: Only return logs newer than a relative duration like 5s, 2m, or 3h. The only supported units are seconds ('s'), minutes ('m'), and hours ('h').
-* *TimeRange*: Time range for log query. If empty, no restrictions are applied.
-    * *StartTime*: Start time for log query (RFC3339 format)
-    * *EndTime*: End time for log query (RFC3339 format)
-`
-
-// GKEGetLogSchemaToolDescription contains the documentation for the GKE Get Log Schema tool.
-// It is formatted in Markdown.
-const GKEGetLogSchemaToolDescription = `
-Get the schema for a specific log type.
-`
 
 type getLogSchemaArgs struct {
 	LogType string `json:"log_type"`
