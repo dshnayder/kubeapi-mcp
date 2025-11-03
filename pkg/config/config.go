@@ -24,6 +24,7 @@ type Config struct {
 	userAgent        string
 	defaultProjectID string
 	defaultLocation  string
+	readOnly         bool
 }
 
 func (c *Config) UserAgent() string {
@@ -38,11 +39,16 @@ func (c *Config) DefaultLocation() string {
 	return c.defaultLocation
 }
 
-func New(version string) *Config {
+func (c *Config) ReadOnly() bool {
+	return c.readOnly
+}
+
+func New(version string, readOnly bool) *Config {
 	return &Config{
 		userAgent:        "kubeapi-mcp/" + version,
 		defaultProjectID: getDefaultProjectID(),
 		defaultLocation:  getDefaultLocation(),
+		readOnly:         readOnly,
 	}
 }
 

@@ -427,16 +427,6 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}, h.getResources)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_apply_resource",
-		Description: ApplyResourceToolDescription,
-	}, h.applyResource)
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_delete_resource",
-		Description: DeleteResourceToolDescription,
-	}, h.deleteResource)
-
-	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kubernetes_api_resources",
 		Description: APIResourcesToolDescription,
 	}, h.apiResources)
@@ -447,15 +437,27 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}, h.getPodLogs)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "kubernetes_patch_resource",
-		Description: PatchResourceToolDescription,
-	}, h.patchResource)
-
-	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kubernetes_can_i",
 		Description: CanIToolDescription,
 	}, h.canI)
 
+	if !c.ReadOnly() {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "kubernetes_apply_resource",
+			Description: ApplyResourceToolDescription,
+		}, h.applyResource)
+
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "kubernetes_delete_resource",
+			Description: DeleteResourceToolDescription,
+		}, h.deleteResource)
+
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "kubernetes_patch_resource",
+			Description: PatchResourceToolDescription,
+		}, h.patchResource)
+
+	}
 	return nil
 }
 
