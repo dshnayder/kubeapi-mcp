@@ -170,7 +170,6 @@ This tool gets the details of a specific GKE cluster. This is equivalent to runn
 - When the user asks to "get", "list", "show", or "describe" a GKE cluster.
 - To check the status or configuration of a GKE cluster.
 - To filter the output using a JSONPath expression.
-- To format the output into a custom table using custom columns.
 
 ### gke_list_clusters
 
@@ -180,7 +179,6 @@ This tool lists all clusters owned by a project in either the specified zone or 
 - When the user asks to "get", "list", "show", or "describe" GKE clusters.
 - To check the status or configuration of GKE clusters.
 - To filter the output using a JSONPath expression.
-- To format the output into a custom table using custom columns.
 
 ### Custom Columns
 

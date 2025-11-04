@@ -522,7 +522,6 @@ type gkeGetClusterArgs struct {
 	Location      string `json:"location"`
 	Name          string `json:"name"`
 	Jsonpath      string `json:"jsonpath,omitempty"`
-	CustomColumns string `json:"custom-columns,omitempty"`
 }
 
 type handlers struct {
@@ -657,7 +656,6 @@ type gkeListClustersArgs struct {
 	ProjectID     string `json:"project_id,omitempty"`
 	Location      string `json:"location,omitempty"`
 	Jsonpath      string `json:"jsonpath,omitempty"`
-	CustomColumns string `json:"custom-columns,omitempty"`
 }
 
 func (h *handlers) gkeGetOperation(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetOperationArgs) (*mcp.CallToolResult, any, error) {
@@ -693,18 +691,6 @@ func (h *handlers) gkeListClusters(ctx context.Context, _ *mcp.CallToolRequest, 
 	b, err := json.Marshal(resp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal clusters: %w", err)
-	}
-
-	if args.CustomColumns != "" {
-		output, err := h.FmtCustomColumns(args.CustomColumns, b)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to format custom columns: %w", err)
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: output},
-			},
-		}, nil, nil
 	}
 
 	if args.Jsonpath != "" {
@@ -755,18 +741,6 @@ func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, ar
 	b, err := json.Marshal(cluster)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal cluster: %w", err)
-	}
-
-	if args.CustomColumns != "" {
-		output, err := h.FmtCustomColumns(args.CustomColumns, b)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to format custom columns: %w", err)
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: output},
-			},
-		}, nil, nil
 	}
 
 	if args.Jsonpath != "" {
