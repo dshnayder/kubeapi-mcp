@@ -160,6 +160,7 @@ This tool retrieves one or more Kubernetes resources from the cluster's API serv
 - When the user asks to "get", "list", "show", or "describe" a Kubernetes resource.
 - To check the status or configuration of a resource.
 - To filter the output using a JSONPath expression.
+- To format the output into a custom table using custom columns.
 
 ### gke_get_cluster
 
@@ -169,6 +170,7 @@ This tool gets the details of a specific GKE cluster. This is equivalent to runn
 - When the user asks to "get", "list", "show", or "describe" a GKE cluster.
 - To check the status or configuration of a GKE cluster.
 - To filter the output using a JSONPath expression.
+- To format the output into a custom table using custom columns.
 
 ### gke_list_clusters
 
@@ -178,6 +180,11 @@ This tool lists all clusters owned by a project in either the specified zone or 
 - When the user asks to "get", "list", "show", or "describe" GKE clusters.
 - To check the status or configuration of GKE clusters.
 - To filter the output using a JSONPath expression.
+- To format the output into a custom table using custom columns.
+
+### Custom Columns
+
+Custom columns allow you to define a table output with specific columns and headers, similar to `kubectl get -o custom-columns=NAME:.metadata.name,STATUS:.status.phase`. You provide a comma-separated list of column definitions, where each definition consists of a header and a JSONPath expression. This enables highly customizable and human-readable output for various Kubernetes resources.
 
 ### kubernetes_api_resources
 

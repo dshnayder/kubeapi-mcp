@@ -518,10 +518,11 @@ canIArgs struct {
 
 
 type gkeGetClusterArgs struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Location  string `json:"location"`
-	Name      string `json:"name"`
-	Jsonpath  string `json:"jsonpath,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	Location      string `json:"location"`
+	Name          string `json:"name"`
+	Jsonpath      string `json:"jsonpath,omitempty"`
+	CustomColumns string `json:"custom-columns,omitempty"`
 }
 
 type handlers struct {
@@ -653,9 +654,10 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 
 
 type gkeListClustersArgs struct {
-	ProjectID string `json:"project_id,omitempty"`
-	Location  string `json:"location,omitempty"`
-	Jsonpath  string `json:"jsonpath,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
+	Location      string `json:"location,omitempty"`
+	Jsonpath      string `json:"jsonpath,omitempty"`
+	CustomColumns string `json:"custom-columns,omitempty"`
 }
 
 func (h *handlers) gkeGetOperation(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetOperationArgs) (*mcp.CallToolResult, any, error) {
@@ -691,6 +693,18 @@ func (h *handlers) gkeListClusters(ctx context.Context, _ *mcp.CallToolRequest, 
 	b, err := json.Marshal(resp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal clusters: %w", err)
+	}
+
+	if args.CustomColumns != "" {
+		output, err := h.FmtCustomColumns(args.CustomColumns, b)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to format custom columns: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: output},
+			},
+		}, nil, nil
 	}
 
 	if args.Jsonpath != "" {
@@ -741,6 +755,18 @@ func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, ar
 	b, err := json.Marshal(cluster)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal cluster: %w", err)
+	}
+
+	if args.CustomColumns != "" {
+		output, err := h.FmtCustomColumns(args.CustomColumns, b)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to format custom columns: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: output},
+			},
+		}, nil, nil
 	}
 
 	if args.Jsonpath != "" {
@@ -914,6 +940,7 @@ type getResourcesArgs struct {
 	Namespace     string `json:"namespace,omitempty"`
 	LabelSelector string `json:"labelSelector,omitempty"`
 	Jsonpath      string `json:"jsonpath,omitempty"`
+	CustomColumns string `json:"custom-columns,omitempty"`
 }
 
 func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, args *getResourcesArgs) (*mcp.CallToolResult, any, error) {
@@ -953,22 +980,43 @@ func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 		resources = list.Items
 	}
 
+	// Convert Unstructured to JSON for custom columns or jsonpath
+	jsonData, err := json.Marshal(resources)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal resources to JSON: %w", err)
+	}
+
+	if args.CustomColumns != "" {
+		output, err := h.FmtCustomColumns(args.CustomColumns, jsonData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to format custom columns: %w", err)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: output},
+			},
+		}, nil, nil
+	}
+
 	if args.Jsonpath != "" {
 		jp := jsonpath.New("jsonpath")
 		if err := jp.Parse(args.Jsonpath); err != nil {
 			return nil, nil, fmt.Errorf("failed to parse jsonpath: %w", err)
 		}
 
+		var data interface{}
+		if err := json.Unmarshal(jsonData, &data); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal resource data: %w", err)
+		}
+
+		values, err := jp.FindResults(data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to find results for jsonpath: %w", err)
+		}
 		var results []string
-		for _, item := range resources {
-			values, err := jp.FindResults(item.Object)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to find results for jsonpath: %w", err)
-			}
-			for _, v := range values {
-				for _, vv := range v {
-					results = append(results, fmt.Sprintf("%v", vv.Interface()))
-				}
+		for _, v := range values {
+			for _, vv := range v {
+				results = append(results, fmt.Sprintf("%v", vv.Interface()))
 			}
 		}
 		return &mcp.CallToolResult{
@@ -981,13 +1029,13 @@ func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 	var yamlDocs []string
 	for _, item := range resources {
 		// Convert Unstructured to JSON
-		jsonData, err := json.Marshal(item.Object)
+		itemJsonData, err := json.Marshal(item.Object)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
 		}
 
 		// Convert JSON to YAML
-		yamlData, err := yaml.JSONToYAML(jsonData)
+		yamlData, err := yaml.JSONToYAML(itemJsonData)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to convert JSON to YAML: %w", err)
 		}
@@ -1313,4 +1361,83 @@ func contains(slice []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func (h *handlers) FmtCustomColumns(cols string, data []byte) (string, error) {
+	var items []interface{}
+	var d interface{}
+	err := json.Unmarshal(data, &d)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+
+	// check if the object is a list
+	if l, ok := d.(map[string]interface{}); ok {
+		if _, ok := l["items"]; ok {
+			// If it's a list with an "items" field, extract the items
+			itemsData, err := json.Marshal(l["items"])
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal items: %w", err)
+			}
+			if err := json.Unmarshal(itemsData, &items); err != nil {
+				return "", fmt.Errorf("failed to unmarshal items: %w", err)
+			}
+		} else {
+			// If it's a single object (not a list with "items"), treat it as a single item
+			items = append(items, d)
+		}
+	} else {
+		// If it's not a map, try to unmarshal directly into a list of interfaces
+		if err := json.Unmarshal(data, &items); err != nil {
+			return "", fmt.Errorf("failed to unmarshal data into list: %w", err)
+		}
+	}
+
+	// Parse the custom columns string
+	columns := strings.Split(cols, ",")
+	var headers []string
+	var paths []string
+	for _, column := range columns {
+		parts := strings.Split(column, ":")
+		if len(parts) != 2 {
+			return "", fmt.Errorf("invalid custom-columns format: %s", column)
+		}
+		headers = append(headers, parts[0])
+		paths = append(paths, parts[1])
+	}
+
+	// Create a table
+	var table [][]string
+	table = append(table, headers)
+
+	// Populate the table
+	for _, item := range items {
+		var row []string
+		for _, path := range paths {
+			jp := jsonpath.New("jsonpath")
+			if err := jp.Parse(fmt.Sprintf("{%s}", path)); err != nil {
+				return "", fmt.Errorf("failed to parse jsonpath: %w", err)
+			}
+			values, err := jp.FindResults(item)
+			if err != nil {
+				return "", fmt.Errorf("failed to find results for jsonpath: %w", err)
+			}
+			var cell string
+			for _, v := range values {
+				for _, vv := range v {
+					cell += fmt.Sprintf("%v", vv.Interface())
+				}
+			}
+			row = append(row, cell)
+		}
+		table = append(table, row)
+	}
+
+	// Format the table
+	var output string
+	for _, row := range table {
+		output += strings.Join(row, "\t") + "\n"
+	}
+
+	return output, nil
 }
