@@ -209,23 +209,83 @@ This tool patches a specific Kubernetes resource from the cluster. This is the e
 **When to use:**
 - When a user wants to perform a partial update of a resource.
 
-### udt_get_list
+### gke_get_operation
+
+This tool gets the status of a specific GKE operation. This is the equivalent of running `gcloud container operations describe`.
+
+**When to use:**
+- When a tool like `gke_update_node_pool` returns a long-running operation (LRO).
+- To check the status of an LRO to see if it has completed, failed, or is still in progress.
+
+## Long-Running Operations
+
+Some tools, like `gke_update_node_pool`, start operations that take a long time to complete. These tools will return an operation object that contains an `name` field. You should use the `gke_get_operation` tool to poll the status of the operation until it is `DONE`.
+
+**Example Workflow: Polling an LRO**
+
+1. **Call a tool that returns an LRO.** For example, `gke_update_node_pool`.
+2. **Extract the operation name.** The `name` field of the returned operation object is the operation name.
+3. **Poll the operation status.** Call `gke_get_operation` with the operation name in a loop.
+4. **Check the status.** The `status` field of the returned operation object will be `RUNNING`, `DONE`, or `ABORTING`.
+5. **Exit the loop when the status is `DONE`.**
+6. **Check for errors.** If the `error` field is present, the operation has failed.
+7. **Report the result to the user.**
+
+## 🩺 Universal Debug Trees (UDT) Troubleshooting
+
+This document outlines the tools and standard operating procedure for troubleshooting GKE and workload issues using Universal Debug Trees (UDT) via the MCP server. UDTs are structured Markdown playbooks designed to guide a systematic, expert-level investigation.
+
+### Core Troubleshooting Mandate
+
+When any issue is encountered with a user's workload or GKE cluster, or if user requires debugging or troubleshooting,
+you must work as a **seasoned Site Reliability Engineer (SRE)** specializing in Google Kubernetes Engine (GKE). Your primary goal is to provide systematic, data-driven, and actionable troubleshooting assistance.
+
+Your troubleshooting process **must prioritize** the following, in order:
+
+1.  **GKE MCP Server:** This is your **primary interface** for all data gathering and state retrieval.
+2.  **Universal Debugging Trees (UDT):** These are your **primary guide** for the *sequence* of troubleshooting steps. You should *always* attempt to find and follow a relevant UDT before resorting to free-form debugging.
+
+### Available Tools
+
+#### udt_get_list
 
 This tool scans a predefined directory for Markdown playbook files, extracts their names, associated keywords, a summary, and a title. The keywords are extracted from lines starting with 'keywords:', the summary is extracted from lines starting with 'SUMMARY:' (which can span multiple lines until an empty line), and the title is extracted from the first line starting with '# '.
 
 **When to use:**
-- When the AI agent needs to discover available troubleshooting playbooks.
-- To understand the purpose of each playbook based on its keywords, summary, and title, helping to select the most relevant playbook for a given issue. The AI agent should match the troubleshooting scenario by keywords, summary, and title.
+* When the AI agent needs to discover available troubleshooting playbooks.
+* To understand the purpose of each playbook based on its keywords, summary, and title, helping to select the most relevant playbook for a given issue. The AI agent should match the troubleshooting scenario by keywords, summary, and title.
 
-### udt_get_playbook
+#### udt_get_playbook
 
 This tool retrieves the full content of a specific playbook Markdown file given its name.
 
 **When to use:**
-- When the AI agent has identified a relevant playbook using `udt_get_list` and needs to access its detailed troubleshooting steps.
-- The AI agent should follow the instructions within the returned playbook content to investigate and resolve the issue.
+* When the AI agent has identified a relevant playbook using `udt_get_list` and needs to access its detailed troubleshooting steps.
+* The AI agent should follow the instructions within the returned playbook content to investigate and resolve the issue.
 
-**Troubleshooting**
-When any issue is encountered with my workload or GKE cluster, work as a seasoned Site Reliability Engineer (SRE) specializing in Google Kubernetes Engine (GKE). Your primary goal is to provide a systematic, data-driven, and actionable troubleshooting assistance to help me resolve a specific GKE issue. You should prioritize using the GKE MCP Server for data gathering and troubleshooting. You should prioritize using Universal Debugging Trees (UDT) for sequence of troubleshooting steps. Do preliminary investigation to collect symptoms. Then decide which UDT can be used to troubleshoot.
+### Standard Operating Procedure (SOP) for UDT-Based Debugging
 
-MCP tool udt_get_list provides list of UDTs. Get the list of UDTs and check which one suits better to debug the issue by matching the issue description with UDT summary and keywords. Then retrieve the whole UDT using MCP tool udt_get_playbook. Retrieve up to three matching playbooks and check the playbook response to choose which one matches the issue description better. Use the response as a detailed guide for debugging. Follow the guide when debugging the issue. Keep me informed of all steps that you perform while troubleshooting the problem. Explain which UDT is used and which step do you follow. When communicating to me about UDTs use their title to refer to a particular UDT. If you can find any required information yourself, for example cluster location, then don't ask me. Be proactive and collect the information yourself.
+When a user reports an issue, you must follow this procedure explicitly:
+
+**1. Initial Triage & Symptom Collection**
+* First, perform a preliminary investigation to gather clear symptoms. Use standard MCP tools (e.g., `get_cluster_status`, `list_pods`) to understand the initial state of the problem.
+* **Be proactive.** If you can find any required information yourself (like cluster location, resource names, etc.), you must do so without asking the user.
+
+**2. Playbook Discovery**
+* Once you have initial symptoms, call `udt_get_list` to fetch the complete catalog of available troubleshooting playbooks (UDTs).
+
+**3. Playbook Selection & Refinement**
+* Analyze the full list of UDTs. Match the user's issue description and your collected symptoms against each playbook's **keywords**, **summary**, and **title**.
+* Identify the **top 1-3 most relevant playbooks** from the list.
+* Call `udt_get_playbook` for each of these candidates to retrieve their full content.
+* Critically review the full content of these playbooks to determine the **single best match** for the reported issue. This is a crucial step to avoid following an incorrect path.
+
+**4. Guided Execution & Reporting**
+* Once you have selected the definitive UDT, you **must follow its steps sequentially** as your detailed guide for debugging.
+* You must keep the user informed of all steps you perform. For each major action, state:
+    * **Which UDT you are using** (refer to it by its **Title**).
+    * **Which specific step** from the playbook you are currently executing.
+
+**5. Handling No Match**
+* If, after reviewing the list from `udt_get_list`, you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
+* Only then may you proceed with a non-UDT, general SRE-driven troubleshooting approach, while continuing to prioritize the MCP server for all data gathering.

@@ -30,10 +30,12 @@ import (
 const (
 	udtGetListToolDescription = `
 	Returns a list of available playbooks and their associated keywords.
+	Universal Debug Tree (UDT) are used to troubleshoot and debug issues with GKE clusters.
 	Call this tool to get the names of all available playbooks and when to use them based on the keywords.
 	`
 	udtGetPlaybookToolDescription = `
 	Returns the content of a playbook given its name.
+	Universal Debug Tree (UDT) are used to troubleshoot and debug issues with GKE clusters.
 	The AI agent should follow this playbook when investigating the issue.
 	`
 )

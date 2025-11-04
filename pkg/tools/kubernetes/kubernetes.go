@@ -69,6 +69,14 @@ Updates the settings of a specific node pool. This is similar to "gcloud contain
 This tool calls the GKE API's projects.locations.clusters.nodePools.update method.
 `
 
+// GKEGetOperationToolDescription contains the documentation for the Get GKE Operation tool.
+// It is formatted in Markdown.
+const GKEGetOperationToolDescription = `
+Gets the status of a specific GKE operation.
+
+This tool calls the GKE API's projects.locations.operations.get method.
+`
+
 type gkeUpdateNodePoolArgs struct {
 	ProjectID         string `json:"project_id,omitempty"`
 	Location          string `json:"location"`
@@ -81,6 +89,10 @@ type gkeUpdateNodePoolArgs struct {
 	MaxNodes          *int64 `json:"max_nodes,omitempty"`
 	TotalMinNodes     *int64 `json:"total_min_nodes,omitempty"`
 	TotalMaxNodes     *int64 `json:"total_max_nodes,omitempty"`
+}
+
+type gkeGetOperationArgs struct {
+	Name string `json:"name"`
 }
 
 func (h *handlers) gkeUpdateNodePool(ctx context.Context, _ *mcp.CallToolRequest, args *gkeUpdateNodePoolArgs) (*mcp.CallToolResult, any, error) {
@@ -607,6 +619,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Description: GKEListClustersToolDescription,
 	}, h.gkeListClusters)
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gke_get_operation",
+		Description: GKEGetOperationToolDescription,
+	}, h.gkeGetOperation)
+
 	if !c.ReadOnly() {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "kubernetes_apply_resource",
@@ -636,6 +653,22 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 type gkeListClustersArgs struct {
 	ProjectID string `json:"project_id,omitempty"`
 	Location  string `json:"location,omitempty"`
+}
+
+func (h *handlers) gkeGetOperation(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetOperationArgs) (*mcp.CallToolResult, any, error) {
+	op, err := h.containerService.Projects.Locations.Operations.Get(args.Name).Context(ctx).Do()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get operation: %w", err)
+	}
+	b, err := json.Marshal(op)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal operation: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
 }
 
 func (h *handlers) gkeListClusters(ctx context.Context, _ *mcp.CallToolRequest, args *gkeListClustersArgs) (*mcp.CallToolResult, any, error) {
