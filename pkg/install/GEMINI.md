@@ -148,6 +148,10 @@ Some MCP tools required [Application Default Credentials](https://cloud.google.c
 
 ## Kubernetes Tools
 
+### JSONPath
+
+JSONPath is a powerful query language designed for precisely selecting and extracting specific elements from complex JSON structures, much like XPath is used for XML. When you need to retrieve only a *subset* of the extensive output returned by a Kubernetes API call, JSONPath is the ideal tool. It allows you to define a clear path to the data you're interested in, effectively filtering out irrelevant information and presenting only the desired values. Key operators include `$` for the root object, `.` for child operators, `[]` for array indices or filters, `*` for wildcard, `..` for recursive descent, and `?()` for expressions. By leveraging JSONPath, you can streamline your data analysis and focus on the critical information for your cluster operations. For example if need to retrieve list of pod names without retrieving the whole pod configuration use `kubernetes_get_resource(resource='pod', jsonpath='{.items[*].metadata.name}')`. In most cases you don't need full resource configuration. For example to names of all pods in a namespace use `kubernetes_get_resource(resource='pod', namespace='ns-name', jsonpath='{.items[*].metadata.name}')`
+
 ### kubernetes_get_resources
 
 This tool retrieves one or more Kubernetes resources from the cluster's API server. It is the equivalent of running `kubectl get`.
@@ -155,6 +159,25 @@ This tool retrieves one or more Kubernetes resources from the cluster's API serv
 **When to use:**
 - When the user asks to "get", "list", "show", or "describe" a Kubernetes resource.
 - To check the status or configuration of a resource.
+- To filter the output using a JSONPath expression.
+
+### gke_get_cluster
+
+This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
+
+**When to use:**
+- When the user asks to "get", "list", "show", or "describe" a GKE cluster.
+- To check the status or configuration of a GKE cluster.
+- To filter the output using a JSONPath expression.
+
+### gke_list_clusters
+
+This tool lists all clusters owned by a project in either the specified zone or all zones. This is equivalent to running "gcloud container clusters list".
+
+**When to use:**
+- When the user asks to "get", "list", "show", or "describe" GKE clusters.
+- To check the status or configuration of GKE clusters.
+- To filter the output using a JSONPath expression.
 
 ### kubernetes_api_resources
 
@@ -225,7 +248,7 @@ Some tools, like `gke_update_node_pool`, start operations that take a long time 
 
 1. **Call a tool that returns an LRO.** For example, `gke_update_node_pool`.
 2. **Extract the operation name.** The `name` field of the returned operation object is the operation name.
-3. **Poll the operation status.** Call `gke_get_operation` with the operation name in a loop.
+3. **Poll the operation status.** Call `gke_get_operation` with the operation name in a loop with 10 seconds delay between each call.
 4. **Check the status.** The `status` field of the returned operation object will be `RUNNING`, `DONE`, or `ABORTING`.
 5. **Exit the loop when the status is `DONE`.**
 6. **Check for errors.** If the `error` field is present, the operation has failed.
@@ -286,6 +309,9 @@ When a user reports an issue, you must follow this procedure explicitly:
     * **Which UDT you are using** (refer to it by its **Title**).
     * **Which specific step** from the playbook you are currently executing.
 
-**5. Handling No Match**
+**5. Resolution**
+When the issue is resolved verify the resolution with original user request. If the issue is not resolved then notify user and try to troubleshoot again.
+
+**6. Handling No Match**
 * If, after reviewing the list from `udt_get_list`, you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
 * Only then may you proceed with a non-UDT, general SRE-driven troubleshooting approach, while continuing to prioritize the MCP server for all data gathering.

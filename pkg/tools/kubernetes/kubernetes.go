@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/jsonpath"
 	"sigs.k8s.io/yaml"
 )
 
@@ -520,6 +521,7 @@ type gkeGetClusterArgs struct {
 	ProjectID string `json:"project_id,omitempty"`
 	Location  string `json:"location"`
 	Name      string `json:"name"`
+	Jsonpath  string `json:"jsonpath,omitempty"`
 }
 
 type handlers struct {
@@ -653,6 +655,7 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 type gkeListClustersArgs struct {
 	ProjectID string `json:"project_id,omitempty"`
 	Location  string `json:"location,omitempty"`
+	Jsonpath  string `json:"jsonpath,omitempty"`
 }
 
 func (h *handlers) gkeGetOperation(ctx context.Context, _ *mcp.CallToolRequest, args *gkeGetOperationArgs) (*mcp.CallToolResult, any, error) {
@@ -689,6 +692,35 @@ func (h *handlers) gkeListClusters(ctx context.Context, _ *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal clusters: %w", err)
 	}
+
+	if args.Jsonpath != "" {
+		jp := jsonpath.New("jsonpath")
+		if err := jp.Parse(args.Jsonpath); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse jsonpath: %w", err)
+		}
+
+		var data interface{}
+		if err := json.Unmarshal(b, &data); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal cluster data: %w", err)
+		}
+
+		values, err := jp.FindResults(data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to find results for jsonpath: %w", err)
+		}
+		var results []string
+		for _, v := range values {
+			for _, vv := range v {
+				results = append(results, fmt.Sprintf("%v", vv.Interface()))
+			}
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: strings.Join(results, "\n")},
+			},
+		}, nil, nil
+	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(b)},
@@ -710,6 +742,35 @@ func (h *handlers) gkeGetCluster(ctx context.Context, _ *mcp.CallToolRequest, ar
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal cluster: %w", err)
 	}
+
+	if args.Jsonpath != "" {
+		jp := jsonpath.New("jsonpath")
+		if err := jp.Parse(args.Jsonpath); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse jsonpath: %w", err)
+		}
+
+		var data interface{}
+		if err := json.Unmarshal(b, &data); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal cluster data: %w", err)
+		}
+
+		values, err := jp.FindResults(data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to find results for jsonpath: %w", err)
+		}
+		var results []string
+		for _, v := range values {
+			for _, vv := range v {
+				results = append(results, fmt.Sprintf("%v", vv.Interface()))
+			}
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: strings.Join(results, "\n")},
+			},
+		}, nil, nil
+	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(b)},
@@ -852,6 +913,7 @@ type getResourcesArgs struct {
 	Name          string `json:"name,omitempty"`
 	Namespace     string `json:"namespace,omitempty"`
 	LabelSelector string `json:"labelSelector,omitempty"`
+	Jsonpath      string `json:"jsonpath,omitempty"`
 }
 
 func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, args *getResourcesArgs) (*mcp.CallToolResult, any, error) {
@@ -889,6 +951,31 @@ func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 			return nil, nil, err
 		}
 		resources = list.Items
+	}
+
+	if args.Jsonpath != "" {
+		jp := jsonpath.New("jsonpath")
+		if err := jp.Parse(args.Jsonpath); err != nil {
+			return nil, nil, fmt.Errorf("failed to parse jsonpath: %w", err)
+		}
+
+		var results []string
+		for _, item := range resources {
+			values, err := jp.FindResults(item.Object)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to find results for jsonpath: %w", err)
+			}
+			for _, v := range values {
+				for _, vv := range v {
+					results = append(results, fmt.Sprintf("%v", vv.Interface()))
+				}
+			}
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: strings.Join(results, "\n")},
+			},
+		}, nil, nil
 	}
 
 	var yamlDocs []string
