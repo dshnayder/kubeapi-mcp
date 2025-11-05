@@ -173,6 +173,10 @@ Some MCP tools required [Application Default Credentials](https://cloud.google.c
 
 JSONPath is a powerful query language designed for precisely selecting and extracting specific elements from complex JSON structures, much like XPath is used for XML. When you need to retrieve only a *subset* of the extensive output returned by a Kubernetes API call, JSONPath is the ideal tool. It allows you to define a clear path to the data you're interested in, effectively filtering out irrelevant information and presenting only the desired values. Key operators include `$` for the root object, `.` for child operators, `[]` for array indices or filters, `*` for wildcard, `..` for recursive descent, and `?()` for expressions. By leveraging JSONPath, you can streamline your data analysis and focus on the critical information for your cluster operations. For example if need to retrieve list of pod names without retrieving the whole pod configuration use `kubernetes_get_resource(resource='pod', jsonpath='{.items[*].metadata.name}')`. In most cases you don't need full resource configuration. For example to names of all pods in a namespace use `kubernetes_get_resource(resource='pod', namespace='ns-name', jsonpath='{.items[*].metadata.name}')`
 
+### Custom Columns
+
+Custom columns allow you to define a table output with specific columns and headers, similar to `kubectl get -o custom-columns=NAME:.metadata.name,STATUS:.status.phase`. You provide a comma-separated list of column definitions, where each definition consists of a header and a JSONPath expression. This enables highly customizable and human-readable output for various Kubernetes resources.
+
 ### kubernetes_get_resources
 
 This tool retrieves one or more Kubernetes resources from the cluster's API server. It is the equivalent of running `kubectl get`.
@@ -200,10 +204,6 @@ This tool lists all clusters owned by a project in either the specified zone or 
 - When the user asks to "get", "list", "show", or "describe" GKE clusters.
 - To check the status or configuration of GKE clusters.
 - To filter the output using a JSONPath expression.
-
-### Custom Columns
-
-Custom columns allow you to define a table output with specific columns and headers, similar to `kubectl get -o custom-columns=NAME:.metadata.name,STATUS:.status.phase`. You provide a comma-separated list of column definitions, where each definition consists of a header and a JSONPath expression. This enables highly customizable and human-readable output for various Kubernetes resources.
 
 ### kubernetes_api_resources
 
