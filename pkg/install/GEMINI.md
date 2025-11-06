@@ -315,6 +315,7 @@ This tool scans a predefined directory for Markdown playbook files, extracts the
 **When to use:**
 * When the AI agent needs to discover available troubleshooting playbooks.
 * To understand the purpose of each playbook based on its keywords, summary, and title, helping to select the most relevant playbook for a given issue. The AI agent should match the troubleshooting scenario by keywords, summary, and title.
+* To get a guidance on what can be checked to verify health of GKE cluster. When no specific problem is identified you can go through each playbook and verify if cluster has problems that are not reported yet.
 
 #### udt_get_playbook
 
