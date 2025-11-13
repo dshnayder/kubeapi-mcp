@@ -29,14 +29,49 @@ import (
 
 const (
 	udtGetListToolDescription = `
-	Returns a list of available playbooks and their associated keywords.
-	Universal Debug Tree (UDT) are used to troubleshoot and debug issues with GKE clusters.
-	Call this tool to get the names of all available playbooks and when to use them based on the keywords.
-	`
+This tool scans a predefined directory for Markdown playbook files, extracts their names, associated keywords, a summary, and a title. The keywords are extracted from lines starting with 'keywords:', the summary is extracted from lines starting with 'SUMMARY:' (which can span multiple lines until an empty line), and the title is extracted from the first line starting with '# '.
+
+**When to use:**
+* When the AI agent needs to discover available troubleshooting playbooks.
+* To understand the purpose of each playbook based on its keywords, summary, and title, helping to select the most relevant playbook for a given issue. The AI agent should match the troubleshooting scenario by keywords, summary, and title.
+* To get a guidance on what can be checked to verify health of GKE cluster. When no specific problem is identified you can go through each playbook and verify if cluster has problems that are not reported yet.
+
+### Standard Operating Procedure (SOP) for UDT-Based Debugging
+
+When a user reports an issue, you must follow this procedure explicitly:
+
+**1. Initial Triage & Symptom Collection**
+* First, perform a preliminary investigation to gather clear symptoms. Use standard MCP tools (e.g., 'gke_get_cluster', 'kube_get_resource') to understand the initial state of the problem.
+* **Be proactive.** If you can find any required information yourself (like cluster location, resource names, etc.), you must do so without asking the user.
+
+**2. Playbook Discovery**
+* Once you have initial symptoms, call 'udt_get_list' to fetch the complete catalog of available troubleshooting playbooks (UDTs).
+
+**3. Playbook Selection & Refinement**
+* Analyze the full list of UDTs. Match the user's issue description and your collected symptoms against each playbook's **keywords**, **summary**, and **title**.
+* Identify the **top 1-3 most relevant playbooks** from the list.
+* Call 'udt_get_playbook' for each of these candidates to retrieve their full content.
+* Critically review the full content of these playbooks to determine the **single best match** for the reported issue. This is a crucial step to avoid following an incorrect path.
+
+**4. Guided Execution & Reporting**
+* Once you have selected the definitive UDT, you **must follow its steps sequentially** as your detailed guide for debugging.
+* You must keep the user informed of all steps you perform. For each major action, state:
+    * **Which UDT you are using** (refer to it by its **Title**).
+    * **Which specific step** from the playbook you are currently executing.
+
+**5. Resolution**
+When the issue is resolved verify the resolution with original user request. If the issue is not resolved then notify user and try to troubleshoot again with a different playbook.
+
+**6. Handling No Match**
+* If, after reviewing the list from 'udt_get_list', you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
+* Only then may you proceed with a non-UDT, general SRE-driven troubleshooting approach, while continuing to prioritize the MCP server for all data gathering.
+`
 	udtGetPlaybookToolDescription = `
-	Returns the content of a playbook given its name.
-	Universal Debug Tree (UDT) are used to troubleshoot and debug issues with GKE clusters.
-	The AI agent should follow this playbook when investigating the issue.
+This tool retrieves the full content of a specific playbook Markdown file given its name.
+
+**When to use:**
+* When the AI agent has identified a relevant playbook using 'udt_get_list' and needs to access its detailed troubleshooting steps.
+* The AI agent should follow the instructions within the returned playbook content to investigate and resolve the issue.
 	`
 )
 

@@ -48,10 +48,10 @@ For detailed instructions on how to connect the KubeAPI MCP Server to various AI
 
 ## MCP Tools
 
-- `kubernetes_get_resource`: Get a Kubernetes resource.
-- `kubernetes_list_resources`: List Kubernetes resources.
-- `kubernetes_apply_resource`: Apply a Kubernetes resource.
-- `kubernetes_delete_resource`: Delete a Kubernetes resource.
+- `kube_get_resource`: Get a Kubernetes resource.
+- `kube_list_resources`: List Kubernetes resources.
+- `kube_apply_resource`: Apply a Kubernetes resource.
+- `kube_delete_resource`: Delete a Kubernetes resource.
 
 ## MCP Context
 

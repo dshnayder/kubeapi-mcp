@@ -159,7 +159,7 @@ This document provides instructions for an AI agent on how to use the available 
 
 ## Guiding Principles
 
-- **Prefer Native Tools:** Always prefer to use the tools provided by this extension (e.g., `kubernetes_get_resources`) instead of shelling out to `gcloud` or `kubectl` for the same functionality. This ensures better-structured data and more reliable execution.
+- **Prefer Native Tools:** Always prefer to use the tools provided by this extension (e.g., `kube_get_resources`) instead of shelling out to `gcloud` or `kubectl` for the same functionality. This ensures better-structured data and more reliable execution.
 - **Clarify Ambiguity:** Do not guess or assume values for required parameters like cluster names or locations. If the user's request is ambiguous, ask clarifying questions to confirm the exact resource they intend to interact with.
 - **Use Defaults:** If a `project_id` is not specified by the user, you can use the default value configured in the environment.
 
@@ -169,7 +169,7 @@ Some MCP tools required [Application Default Credentials](https://cloud.google.c
 
 ## Kubernetes Tools
 
-### kubernetes_get_resources
+### kube_get_resources
 
 This tool retrieves one or more Kubernetes resources from the cluster's API server. It is the equivalent of running `kubectl get`.
 
@@ -217,7 +217,7 @@ This tool lists all clusters owned by a project in either the specified zone or 
 - When the user asks to "get", "list", "show", or "describe" GKE clusters.
 - To check the status or configuration of GKE clusters.
 
-### kubernetes_api_resources
+### kube_api_resources
 
 This tool lists the API resources available in the cluster. This is the equivalent of running `kubectl api-resources`.
 
@@ -225,7 +225,7 @@ This tool lists the API resources available in the cluster. This is the equivale
 - When the user wants to know what resources are available in the cluster.
 - To find the short name or API group for a resource.
 
-### kubernetes_get_pod_logs
+### kube_get_pod_logs
 
 This tool retrieves logs from a specific pod in the cluster. This is the equivalent of running `kubectl logs`.
 
@@ -233,7 +233,7 @@ This tool retrieves logs from a specific pod in the cluster. This is the equival
 - When the user asks for the logs of a pod.
 - To troubleshoot a pod that is not behaving as expected.
 
-### kubernetes_can_i
+### kube_can_i
 
 This tool checks if the current user can perform a specific action on a Kubernetes resource. This is the equivalent of running `kubectl auth can-i`.
 
@@ -241,7 +241,7 @@ This tool checks if the current user can perform a specific action on a Kubernet
 - When a user is having permission issues.
 - To check if a user has the necessary permissions to perform an action before attempting it.
 
-### kubernetes_query_logs
+### kube_query_logs
 
 This tool queries Google Cloud Platform logs using Logging Query Language (LQL).
 
@@ -249,21 +249,21 @@ This tool queries Google Cloud Platform logs using Logging Query Language (LQL).
 - When the user wants to search for specific log entries.
 - To troubleshoot issues that may be reflected in the logs.
 
-### kubernetes_apply_resource
+### kube_apply_resource
 
 This tool applies a configuration to a resource from a YAML manifest. If the resource doesn't exist, it will be created. If it already exists, it will be updated. This is the equivalent of running `kubectl apply -f`.
 
 **When to use:**
 - When a user wants to create or update a resource from a YAML manifest.
 
-### kubernetes_delete_resource
+### kube_delete_resource
 
 This tool deletes a specific Kubernetes resource from the cluster. This is the equivalent of running `kubectl delete`.
 
 **When to use:**
 - When a user wants to delete a resource.
 
-### kubernetes_patch_resource
+### kube_patch_resource
 
 This tool patches a specific Kubernetes resource from the cluster. This is the equivalent of running `kubectl patch`.
 
@@ -292,7 +292,7 @@ Some tools, like `gke_update_node_pool`, start operations that take a long time 
 6. **Check for errors.** If the `error` field is present, the operation has failed.
 7. **Report the result to the user.**
 
-## 🩺 Universal Debug Trees (UDT) Troubleshooting
+## Universal Debug Trees (UDT) Troubleshooting
 
 This document outlines the tools and standard operating procedure for troubleshooting GKE and workload issues using Universal Debug Trees (UDT) via the MCP server. UDTs are structured Markdown playbooks designed to guide a systematic, expert-level investigation.
 
@@ -304,7 +304,7 @@ you must work as a **seasoned Site Reliability Engineer (SRE)** specializing in 
 Your troubleshooting process **must prioritize** the following, in order:
 
 1.  **GKE MCP Server:** This is your **primary interface** for all data gathering and state retrieval.
-2.  **Universal Debugging Trees (UDT):** These are your **primary guide** for the *sequence* of troubleshooting steps. You should *always* attempt to find and follow a relevant UDT before resorting to free-form debugging.
+2.  **Universal Debugging Trees (UDT):** These are your **primary guide** for the **sequence** of troubleshooting steps. You should *always* attempt to find and follow a relevant UDT before resorting to free-form debugging.
 
 ### Available Tools
 
@@ -330,7 +330,7 @@ This tool retrieves the full content of a specific playbook Markdown file given 
 When a user reports an issue, you must follow this procedure explicitly:
 
 **1. Initial Triage & Symptom Collection**
-* First, perform a preliminary investigation to gather clear symptoms. Use standard MCP tools (e.g., `get_cluster_status`, `list_pods`) to understand the initial state of the problem.
+* First, perform a preliminary investigation to gather clear symptoms. Use standard MCP tools (e.g., `gke_get_cluster`, `kube_get_resource`) to understand the initial state of the problem.
 * **Be proactive.** If you can find any required information yourself (like cluster location, resource names, etc.), you must do so without asking the user.
 
 **2. Playbook Discovery**
@@ -349,7 +349,7 @@ When a user reports an issue, you must follow this procedure explicitly:
     * **Which specific step** from the playbook you are currently executing.
 
 **5. Resolution**
-When the issue is resolved verify the resolution with original user request. If the issue is not resolved then notify user and try to troubleshoot again.
+When the issue is resolved verify the resolution with original user request. If the issue is not resolved then notify user and try to troubleshoot again with a different playbook.
 
 **6. Handling No Match**
 * If, after reviewing the list from `udt_get_list`, you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
