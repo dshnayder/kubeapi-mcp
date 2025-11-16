@@ -575,7 +575,7 @@ In Kubernetes, "getting resources" means fetching the **live state and specifica
 
 ## Custom Columns:
 
-The 'custom-columns' argument allows you to format the output as a table with custom columns. The value is a comma-separated list of 'HEADER:JSONPATH' pairs.
+The 'customColumns' argument allows you to limit the output to specific fields as a table with custom columns. The value is a comma-separated list of 'HEADER:JSONPATH' pairs.
 
 - **HEADER**: The column header.
 - **JSONPATH**: A [JSONPath](https://kubernetes.io/docs/reference/kubectl/jsonpath/) expression to extract a value from the resource.
@@ -586,7 +586,7 @@ To get the name and image of all pods in the 'default' namespace, you would use 
 
 - 'resource': 'pods'
 - 'namespace': 'default'
-- 'custom-columns': 'NAME:.metadata.name,IMAGE:.spec.containers[0].image'
+- 'customColumns': 'NAME:.metadata.name,IMAGE:.spec.containers[0].image'
 
 This would produce output similar to this:
 
@@ -631,6 +631,8 @@ getResourcesArgs struct {
     Name          string
     Namespace     string
     LabelSelector string
+    FieldSelector string
+    CustomColumns string
 }
 ` + "```" + `
 
@@ -643,6 +645,7 @@ getResourcesArgs struct {
     * If this field is **omitted** for a namespaced resource type (like *Pods*), it will list resources from **all namespaces**.
     * For cluster-scoped resources (like *Nodes*), this field should be omitted.
 * *LabelSelector*: (Optional) A Kubernetes label selector to filter the resources.
+* *FieldSelector*: (Optional) A Kubernetes field selector to filter the resources.
 
 ### Example
 
@@ -1393,7 +1396,8 @@ type getResourcesArgs struct {
 	Name          string `json:"name,omitempty"`
 	Namespace     string `json:"namespace,omitempty"`
 	LabelSelector string `json:"labelSelector,omitempty"`
-	CustomColumns string `json:"custom-columns,omitempty"`
+	FieldSelector string `json:"fieldSelector,omitempty"`
+	CustomColumns string `json:"customColumns,omitempty"`
 }
 
 func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, args *getResourcesArgs) (*mcp.CallToolResult, any, error) {
@@ -1421,6 +1425,9 @@ func (h *handlers) getResources(ctx context.Context, _ *mcp.CallToolRequest, arg
 		listOptions := metav1.ListOptions{}
 		if args.LabelSelector != "" {
 			listOptions.LabelSelector = args.LabelSelector
+		}
+		if args.FieldSelector != "" {
+			listOptions.FieldSelector = args.FieldSelector
 		}
 		if args.Namespace != "" {
 			list, err = h.dyn.Resource(gvr).Namespace(args.Namespace).List(ctx, listOptions)
