@@ -890,6 +890,22 @@ To get the component statuses:
 {}
 `
 
+// GetClusterInfoToolDescription contains the documentation for the Get Cluster Info Kubernetes tool.
+// It is formatted in Markdown.
+const GetClusterInfoToolDescription = `
+This tool displays cluster information. This is the equivalent of running "kubectl cluster-info".
+
+This tool is useful for getting the addresses of the control plane and services in the cluster.
+
+Example:
+To get the cluster info:
+{}
+To dump cluster info:
+{
+  "dump": true
+}
+`
+
 // PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
 // It is formatted in Markdown.
 const PatchResourceToolDescription = `
@@ -1040,6 +1056,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kube_get_componentstatuses",
 		Description: GetComponentStatusesToolDescription,
 	}, h.getComponentStatuses)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kube_get_clusterinfo",
+		Description: GetClusterInfoToolDescription,
+	}, h.getClusterInfo)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kube_can_i",
@@ -1668,6 +1689,10 @@ type topArgs struct {
 
 type getComponentStatusesArgs struct{}
 
+type getClusterInfoArgs struct {
+	Dump bool `json:"dump,omitempty"`
+}
+
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
@@ -1690,6 +1715,55 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) getClusterInfo(ctx context.Context, _ *mcp.CallToolRequest, args *getClusterInfoArgs) (*mcp.CallToolResult, any, error) {
+	var output strings.Builder
+
+	// Get cluster endpoint
+	restConfig, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load kubeconfig: %w", err)
+	}
+	clusterName := restConfig.Contexts[restConfig.CurrentContext].Cluster
+	output.WriteString(fmt.Sprintf("Kubernetes control plane is running at %s\n", restConfig.Clusters[clusterName].Server))
+
+	// Get services with label kubernetes.io/cluster-service=true
+	services, err := h.clientset.CoreV1().Services("kube-system").List(ctx, metav1.ListOptions{LabelSelector: "kubernetes.io/cluster-service=true"})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get services: %w", err)
+	}
+	for _, service := range services.Items {
+		output.WriteString(fmt.Sprintf("%s is running at %s\n", service.Name, service.Spec.ClusterIP))
+	}
+
+	if args.Dump {
+		// Dump nodes
+		nodes, err := h.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get nodes: %w", err)
+		}
+		output.WriteString("\nNodes:\n")
+		for _, node := range nodes.Items {
+			output.WriteString(fmt.Sprintf("- %s\n", node.Name))
+		}
+
+		// Dump pods
+		pods, err := h.clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get pods: %w", err)
+		}
+		output.WriteString("\nPods:\n")
+		for _, pod := range pods.Items {
+			output.WriteString(fmt.Sprintf("- %s/%s\n", pod.Namespace, pod.Name))
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
 }

@@ -259,6 +259,23 @@ To get the component statuses, you would use the following arguments:
 
 - No arguments are required.
 
+### kube_get_clusterinfo
+
+This tool displays cluster information. This is the equivalent of running "kubectl cluster-info".
+
+**When to use:**
+- To get the addresses of the control plane and services in the cluster.
+
+**Example:**
+
+To get the cluster info, you would use the following arguments:
+
+- No arguments are required.
+
+To dump cluster info, you would use the following arguments:
+
+- `dump`: `true`
+
 ### gke_get_cluster
 
 This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
