@@ -878,60 +878,22 @@ To get the CPU and memory usage of all pods in the "default" namespace:
 }
 `
 
+// GetComponentStatusesToolDescription contains the documentation for the Get Component Statuses Kubernetes tool.
+// It is formatted in Markdown.
+const GetComponentStatusesToolDescription = `
+This tool displays the status of Kubernetes cluster components. This is the equivalent of running "kubectl get componentstatuses".
+
+This tool is useful for checking the health and status of core Kubernetes components like the controller-manager, scheduler, and etcd.
+
+Example:
+To get the component statuses:
+{}
+`
+
 // PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
 // It is formatted in Markdown.
 const PatchResourceToolDescription = `
 This tool patches a specific Kubernetes resource from the cluster.
-
-***
-
-## What "Patching a Resource" Means
-
-In Kubernetes, "patching a resource" means sending a request to the API server to partially update an object. This is the equivalent of running the *kubectl patch* command.
-
-The tool supports three types of patches:
-* **strategic-merge-patch**: The default. Merges the patch with the existing resource, following rules specific to each field.
-* **merge-patch**: Merges the patch with the existing resource. For maps, the patch's keys and values are merged with the existing map. For lists, the patch's list replaces the existing list.
-* **json-patch**: A JSON Patch is a sequence of operations (add, remove, replace, etc.) that are applied to a JSON document.
-
-***
-
-## How to Specify a Resource to Patch
-
-To patch a specific resource, you must provide its coordinates within the Kubernetes API, the patch itself, and optionally the patch type. The *patchResourceArgs* structure defines the necessary arguments.
-
-` + "```" + `go
-// The actual struct includes JSON tags. They are omitted here for clarity.
-// Refer to the source code for the complete definition.
-patchResourceArgs struct {
-    Resource  string
-    Name      string
-    Namespace string
-    Patch     string
-    PatchType string
-}
-` + "```" + `
-
-### Argument Breakdown
-
-* *Resource*: The **plural, lowercase name** for the resource type (e.g., *pods*, *deployments*, *secrets*).
-* *Name*: The case-sensitive name of the specific resource instance you want to patch.
-* *Namespace*: The namespace where the resource exists. This field must be provided for namespaced resources. For cluster-scoped resources like *Nodes*, it should be omitted.
-* *Patch*: A YAML string representing the patch.
-* *PatchType*: (Optional) The type of patch to apply. Can be *strategic*, *merge*, or *json*. Defaults to *strategic*.
-
-### Response Format
-
-The tool's response is the full YAML of the object **after** it has been patched.
-
-### Example
-
-To patch a *Deployment* named *my-app* in the *default* namespace to change the number of replicas, you would structure the arguments like this:
-
-* *Resource*: *"deployments"*
-* *Name*: *"my-app"*
-* *Namespace*: *"default"*
-* *Patch*: *'spec: {replicas: 3}'*
 `
 
 // CanIToolDescription contains the documentation for the Kubernetes Can I tool.
@@ -1073,6 +1035,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kube_top",
 		Description: TopToolDescription,
 	}, h.top)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kube_get_componentstatuses",
+		Description: GetComponentStatusesToolDescription,
+	}, h.getComponentStatuses)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kube_can_i",
@@ -1699,6 +1666,8 @@ type topArgs struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+type getComponentStatusesArgs struct{}
+
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
@@ -1721,6 +1690,38 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) getComponentStatuses(ctx context.Context, _ *mcp.CallToolRequest, args *getComponentStatusesArgs) (*mcp.CallToolResult, any, error) {
+	csList, err := h.clientset.CoreV1().ComponentStatuses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get component statuses: %w", err)
+	}
+
+	var output strings.Builder
+	output.WriteString("NAME\tHEALTHY\tMESSAGE\tERROR\n")
+	for _, cs := range csList.Items {
+		name := cs.Name
+		healthy := "Unknown"
+		message := ""
+		error := ""
+
+		for _, condition := range cs.Conditions {
+			if condition.Type == corev1.ComponentHealthy {
+				healthy = string(condition.Status)
+				message = condition.Message
+				error = condition.Error
+				break
+			}
+		}
+		output.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\n", name, healthy, message, error))
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
 }

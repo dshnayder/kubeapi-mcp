@@ -246,6 +246,19 @@ To get the CPU and memory usage of all pods in the "default" namespace, you woul
 - `resource`: `pods`
 - `namespace`: `default`
 
+### kube_get_componentstatuses
+
+This tool displays the status of Kubernetes cluster components. This is the equivalent of running "kubectl get componentstatuses".
+
+**When to use:**
+- To check the health and status of core Kubernetes components like the controller-manager, scheduler, and etcd.
+
+**Example:**
+
+To get the component statuses, you would use the following arguments:
+
+- No arguments are required.
+
 ### gke_get_cluster
 
 This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
