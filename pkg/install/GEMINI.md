@@ -383,7 +383,7 @@ Your troubleshooting process **must prioritize** the following, in order:
 
 ### Available Tools
 
-#### udt_get_list
+#### udt_list_playbooks
 
 This tool scans a predefined directory for Markdown playbook files, extracts their names, associated keywords, a summary, and a title. The keywords are extracted from lines starting with 'keywords:', the summary is extracted from lines starting with 'SUMMARY:' (which can span multiple lines until an empty line), and the title is extracted from the first line starting with '# '.
 
@@ -397,8 +397,16 @@ This tool scans a predefined directory for Markdown playbook files, extracts the
 This tool retrieves the full content of a specific playbook Markdown file given its name.
 
 **When to use:**
-* When the AI agent has identified a relevant playbook using `udt_get_list` and needs to access its detailed troubleshooting steps.
+* When the AI agent has identified a relevant playbook using `udt_list_playbooks` and needs to access its detailed troubleshooting steps.
 * The AI agent should follow the instructions within the returned playbook content to investigate and resolve the issue.
+
+#### udt_search_playbooks
+
+This tool searches for Markdown playbook files based on a query.
+
+**When to use:**
+* When the AI agent needs to find specific troubleshooting playbooks based on keywords or phrases.
+* To quickly narrow down the list of available playbooks to those relevant to a particular issue.
 
 ### Standard Operating Procedure (SOP) for UDT-Based Debugging
 
@@ -409,7 +417,7 @@ When a user reports an issue, you must follow this procedure explicitly:
 * **Be proactive.** If you can find any required information yourself (like cluster location, resource names, etc.), you must do so without asking the user.
 
 **2. Playbook Discovery**
-* Once you have initial symptoms, call `udt_get_list` to fetch the complete catalog of available troubleshooting playbooks (UDTs).
+* Once you have initial symptoms, call `udt_list_playbooks` to fetch the complete catalog of available troubleshooting playbooks (UDTs).
 
 **3. Playbook Selection & Refinement**
 * Analyze the full list of UDTs. Match the user's issue description and your collected symptoms against each playbook's **keywords**, **summary**, and **title**.
@@ -427,5 +435,5 @@ When a user reports an issue, you must follow this procedure explicitly:
 When the issue is resolved verify the resolution with original user request. If the issue is not resolved then notify user and try to troubleshoot again with a different playbook.
 
 **6. Handling No Match**
-* If, after reviewing the list from `udt_get_list`, you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
+* If, after reviewing the list from `udt_list_playbooks`, you conclude that *no* playbook adequately matches the reported symptoms, you must inform the user of this.
 * Only then may you proceed with a non-UDT, general SRE-driven troubleshooting approach, while continuing to prioritize the MCP server for all data gathering.

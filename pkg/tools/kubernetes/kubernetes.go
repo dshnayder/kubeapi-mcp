@@ -959,14 +959,14 @@ type gkeGetClusterArgs struct {
 }
 
 type handlers struct {
-	c                 *config.Config
-	dyn               dynamic.Interface
-	mapper            meta.RESTMapper
-	dc                *discovery.DiscoveryClient
-	clientset         kubernetes.Interface
-	metricsClientset  metricsv.Interface
-	logadminClient    *logadmin.Client
-	containerService  *container.Service
+	c                *config.Config
+	dyn              dynamic.Interface
+	mapper           meta.RESTMapper
+	dc               *discovery.DiscoveryClient
+	clientset        kubernetes.Interface
+	metricsClientset metricsv.Interface
+	logadminClient   *logadmin.Client
+	containerService *container.Service
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -1147,7 +1147,6 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 				Name:        "gke_start_ip_rotation",
 				Description: GKEStartIPRotationToolDescription,
 			}, h.gkeStartIPRotation)
-			// 22 tools up to this point
 
 			mcp.AddTool(s, &mcp.Tool{
 				Name:        "gke_set_maintenance_policy",
@@ -1955,19 +1954,23 @@ func (h *handlers) describeResource(ctx context.Context, _ *mcp.CallToolRequest,
 	// Add more details from the object spec and status
 	spec, ok := obj.Object["spec"].(map[string]interface{})
 	if ok {
-		output.WriteString("Spec:\n")
-		for key, value := range spec {
-			output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		specYAML, err := yaml.Marshal(spec)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal spec to YAML: %w", err)
 		}
+		output.WriteString("Spec:\n")
+		output.WriteString(string(specYAML))
 		output.WriteString("\n")
 	}
 
 	status, ok := obj.Object["status"].(map[string]interface{})
 	if ok {
-		output.WriteString("Status:\n")
-		for key, value := range status {
-			output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		statusYAML, err := yaml.Marshal(status)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal status to YAML: %w", err)
 		}
+		output.WriteString("Status:\n")
+		output.WriteString(string(statusYAML))
 		output.WriteString("\n")
 	}
 

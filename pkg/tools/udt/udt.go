@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	udtGetListToolDescription = `
+	udtListPlaybooksToolDescription = `
 This tool scans a predefined directory for Markdown playbook files, extracts their names, associated keywords, a summary, and a title. The keywords are extracted from lines starting with 'keywords:', the summary is extracted from lines starting with 'SUMMARY:' (which can span multiple lines until an empty line), and the title is extracted from the first line starting with '# '.
 
 **When to use:**
@@ -45,7 +45,7 @@ When a user reports an issue, you must follow this procedure explicitly:
 * **Be proactive.** If you can find any required information yourself (like cluster location, resource names, etc.), you must do so without asking the user.
 
 **2. Playbook Discovery**
-* Once you have initial symptoms, call 'udt_get_list' to fetch the complete catalog of available troubleshooting playbooks (UDTs).
+* Once you have initial symptoms, call 'udt_list_playbooks' to fetch the complete catalog of available troubleshooting playbooks (UDTs).
 
 **3. Playbook Selection & Refinement**
 * Analyze the full list of UDTs. Match the user's issue description and your collected symptoms against each playbook's **keywords**, **summary**, and **title**.
@@ -70,12 +70,23 @@ When the issue is resolved verify the resolution with original user request. If 
 This tool retrieves the full content of a specific playbook Markdown file given its name.
 
 **When to use:**
-* When the AI agent has identified a relevant playbook using 'udt_get_list' and needs to access its detailed troubleshooting steps.
+* When the AI agent has identified a relevant playbook using 'udt_list_playbooks' and needs to access its detailed troubleshooting steps.
 * The AI agent should follow the instructions within the returned playbook content to investigate and resolve the issue.
 	`
+	udtSearchPlaybooksToolDescription = `
+This tool searches for Markdown playbook files based on a query.
+
+**When to use:**
+* When the AI agent needs to find specific troubleshooting playbooks based on keywords or phrases.
+* To quickly narrow down the list of available playbooks to those relevant to a particular issue.
+`
 )
 
-type udtGetListArgs struct{}
+type udtListPlaybooksArgs struct{}
+
+type udtSearchPlaybooksArgs struct{
+	Query string `json:"query"`
+}
 
 type udtGetPlaybookArgs struct {
 	Name string `json:"name"`
@@ -107,14 +118,19 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "udt_get_list",
-		Description: udtGetListToolDescription,
-	}, h.getList)
+		Name:        "udt_list_playbooks",
+		Description: udtListPlaybooksToolDescription,
+	}, h.listPlaybooks)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "udt_get_playbook",
 		Description: udtGetPlaybookToolDescription,
 	}, h.getPlaybook)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "udt_search_playbooks",
+		Description: udtSearchPlaybooksToolDescription,
+	}, h.searchPlaybooks)
 
 	return nil
 }
@@ -187,7 +203,20 @@ func (h *handlers) scanPlaybooks() error {
 	return nil
 }
 
-func (h *handlers) getList(ctx context.Context, _ *mcp.CallToolRequest, args *udtGetListArgs) (*mcp.CallToolResult, any, error) {
+func (h *handlers) listPlaybooks(ctx context.Context, _ *mcp.CallToolRequest, args *udtListPlaybooksArgs) (*mcp.CallToolResult, any, error) {
+	b, err := json.Marshal(h.playbooks)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal playbooks: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) searchPlaybooks(ctx context.Context, _ *mcp.CallToolRequest, args *udtSearchPlaybooksArgs) (*mcp.CallToolResult, any, error) {
+	// For now, ignore the query and return all playbooks, reusing the listPlaybooks logic.
 	b, err := json.Marshal(h.playbooks)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal playbooks: %w", err)
