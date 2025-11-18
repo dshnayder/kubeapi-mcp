@@ -44,6 +44,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/jsonpath"
+	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 	"sigs.k8s.io/yaml"
 )
 
@@ -862,6 +863,21 @@ To get the rollout status of a deployment named "my-deployment" in the "default"
 }
 `
 
+// TopToolDescription contains the documentation for the Top Kubernetes tool.
+// It is formatted in Markdown.
+const TopToolDescription = `
+This tool displays CPU and memory usage for nodes or pods. This is the equivalent of running "kubectl top".
+
+This tool is useful for observing the resource consumption of nodes and pods in the cluster.
+
+Example:
+To get the CPU and memory usage of all pods in the "default" namespace:
+{
+  "resource": "pods",
+  "namespace": "default"
+}
+`
+
 // PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
 // It is formatted in Markdown.
 const PatchResourceToolDescription = `
@@ -965,13 +981,14 @@ type gkeGetClusterArgs struct {
 }
 
 type handlers struct {
-	c                *config.Config
-	dyn              dynamic.Interface
-	mapper           meta.RESTMapper
-	dc               *discovery.DiscoveryClient
-	clientset        kubernetes.Interface
-	logadminClient   *logadmin.Client
-	containerService *container.Service
+	c                 *config.Config
+	dyn               dynamic.Interface
+	mapper            meta.RESTMapper
+	dc                *discovery.DiscoveryClient
+	clientset         kubernetes.Interface
+	metricsClientset  metricsv.Interface
+	logadminClient    *logadmin.Client
+	containerService  *container.Service
 }
 
 func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
@@ -1001,6 +1018,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 	}
 	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
 
+	metricsClientset, err := metricsv.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create metrics clientset: %w", err)
+	}
+
 	logadminClient, err := logadmin.NewClient(ctx, c.DefaultProjectID())
 	if err != nil {
 		return fmt.Errorf("failed to create logadmin client: %w", err)
@@ -1017,6 +1039,7 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		mapper:           mapper,
 		dc:               dc,
 		clientset:        clientset,
+		metricsClientset: metricsClientset,
 		logadminClient:   logadminClient,
 		containerService: containerService,
 	}
@@ -1045,6 +1068,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kube_rollout_status",
 		Description: RolloutStatusToolDescription,
 	}, h.rolloutStatus)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kube_top",
+		Description: TopToolDescription,
+	}, h.top)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kube_can_i",
@@ -1666,6 +1694,11 @@ type rolloutStatusArgs struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+type topArgs struct {
+	Resource  string `json:"resource"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
@@ -1688,6 +1721,53 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) top(ctx context.Context, _ *mcp.CallToolRequest, args *topArgs) (*mcp.CallToolResult, any, error) {
+	var output strings.Builder
+	switch args.Resource {
+	case "nodes", "node":
+		nodeMetrics, err := h.metricsClientset.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get node metrics: %w", err)
+		}
+
+		output.WriteString("NAME\tCPU(cores)\tMEMORY(bytes)\n")
+		for _, item := range nodeMetrics.Items {
+			output.WriteString(fmt.Sprintf("%s\t%dm\t%s\n",
+				item.Name,
+				item.Usage.Cpu().MilliValue(),
+				item.Usage.Memory().String(),
+			))
+		}
+	case "pods", "pod":
+		podMetrics, err := h.metricsClientset.MetricsV1beta1().PodMetricses(args.Namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get pod metrics: %w", err)
+		}
+		output.WriteString("NAME\tCPU(cores)\tMEMORY(bytes)\n")
+		for _, item := range podMetrics.Items {
+			var cpuTotal int64
+			var memTotal int64
+			for _, cont := range item.Containers {
+				cpuTotal += cont.Usage.Cpu().MilliValue()
+				memTotal += cont.Usage.Memory().Value()
+			}
+			output.WriteString(fmt.Sprintf("%s\t%dm\t%d\n",
+				item.Name,
+				cpuTotal,
+				memTotal,
+			))
+		}
+	default:
+		return nil, nil, fmt.Errorf("top is not supported for resource of kind %q", args.Resource)
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
 }

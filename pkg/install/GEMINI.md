@@ -232,6 +232,20 @@ To get the rollout status of a deployment named "my-deployment" in the "default"
 - `name`: `my-deployment`
 - `namespace`: `default`
 
+### kube_top
+
+This tool displays CPU and memory usage for nodes or pods. This is the equivalent of running "kubectl top".
+
+**When to use:**
+- To observe the resource consumption of nodes and pods in the cluster.
+
+**Example:**
+
+To get the CPU and memory usage of all pods in the "default" namespace, you would use the following arguments:
+
+- `resource`: `pods`
+- `namespace`: `default`
+
 ### gke_get_cluster
 
 This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
