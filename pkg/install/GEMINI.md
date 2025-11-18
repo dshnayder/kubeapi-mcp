@@ -201,6 +201,22 @@ my-pod-1      nginx:latest
 my-pod-2      ubuntu:22.04
 ```
 
+### kube_describe
+
+This tool retrieves detailed information about a specific Kubernetes resource. It is similar to running "kubectl describe".
+
+**When to use:**
+- When the user asks to "describe" a Kubernetes resource.
+- To get a detailed, human-readable view of a resource's configuration, status, and related events.
+
+**Example:**
+
+To describe a pod named "my-pod" in the "default" namespace, you would use the following arguments:
+
+- `resource`: `pod`
+- `name`: `my-pod`
+- `namespace`: `default`
+
 ### gke_get_cluster
 
 This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".

@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/jsonpath"
@@ -829,6 +830,22 @@ To get logs from a pod named *my-app-pod-123* in the *production* namespace, you
 * *Namespace*: *"production"*
 `
 
+// DescribeResourceToolDescription contains the documentation for the Describe Kubernetes Resource tool.
+// It is formatted in Markdown.
+const DescribeResourceToolDescription = `
+This tool retrieves detailed information about a specific Kubernetes resource. It is similar to running "kubectl describe".
+
+This tool is useful for inspecting the configuration, status, and events related to a resource.
+
+Example:
+To describe a pod named "my-pod" in the "default" namespace:
+{
+  "resource": "pod",
+  "name": "my-pod",
+  "namespace": "default"
+}
+`
+
 // PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
 // It is formatted in Markdown.
 const PatchResourceToolDescription = `
@@ -1002,6 +1019,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kube_get_pod_logs",
 		Description: GetPodLogsToolDescription,
 	}, h.getPodLogs)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kube_describe",
+		Description: DescribeResourceToolDescription,
+	}, h.describeResource)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kube_can_i",
@@ -1611,6 +1633,12 @@ type getPodLogsArgs struct {
 	Previous  bool   `json:"previous,omitempty"`
 }
 
+type describeResourceArgs struct {
+	Resource  string `json:"resource"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
@@ -1633,6 +1661,77 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+
+func (h *handlers) describeResource(ctx context.Context, _ *mcp.CallToolRequest, args *describeResourceArgs) (*mcp.CallToolResult, any, error) {
+	gvr, err := h.findGVR(args.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var obj *unstructured.Unstructured
+	if args.Namespace != "" {
+		obj, err = h.dyn.Resource(gvr).Namespace(args.Namespace).Get(ctx, args.Name, metav1.GetOptions{})
+	} else {
+		obj, err = h.dyn.Resource(gvr).Get(ctx, args.Name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	// Get events for the resource
+	events, err := h.clientset.CoreV1().Events(obj.GetNamespace()).Search(scheme.Scheme, obj)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get events for resource: %w", err)
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Name: %s\n", obj.GetName()))
+	output.WriteString(fmt.Sprintf("Namespace: %s\n", obj.GetNamespace()))
+	output.WriteString(fmt.Sprintf("Kind: %s\n", obj.GetKind()))
+	output.WriteString(fmt.Sprintf("APIVersion: %s\n", obj.GetAPIVersion()))
+	output.WriteString("\n")
+
+	// Add more details from the object spec and status
+	spec, ok := obj.Object["spec"].(map[string]interface{})
+	if ok {
+		output.WriteString("Spec:\n")
+		for key, value := range spec {
+			output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		}
+		output.WriteString("\n")
+	}
+
+	status, ok := obj.Object["status"].(map[string]interface{})
+	if ok {
+		output.WriteString("Status:\n")
+		for key, value := range status {
+			output.WriteString(fmt.Sprintf("  %s: %v\n", key, value))
+		}
+		output.WriteString("\n")
+	}
+
+	// Add events
+	if len(events.Items) > 0 {
+		output.WriteString("Events:\n")
+		output.WriteString("  Type\tReason\tAge\tFrom\tMessage\n")
+		output.WriteString("  ----\t------\t---\t----\t-------\n")
+		for _, e := range events.Items {
+			output.WriteString(fmt.Sprintf("  %s\t%s\t%s\t%s\t%s\n",
+				e.Type,
+				e.Reason,
+				time.Since(e.LastTimestamp.Time).Truncate(time.Second).String(),
+				e.Source.Component,
+				e.Message,
+			))
+		}
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output.String()},
 		},
 	}, nil, nil
 }
