@@ -846,6 +846,22 @@ To describe a pod named "my-pod" in the "default" namespace:
 }
 `
 
+// RolloutStatusToolDescription contains the documentation for the Rollout Status Kubernetes tool.
+// It is formatted in Markdown.
+const RolloutStatusToolDescription = `
+This tool watches the status of a resource rollout until it is complete.
+
+This tool is useful for checking the status of a Deployment, DaemonSet, or StatefulSet to see if the rollout has been successful.
+
+Example:
+To get the rollout status of a deployment named "my-deployment" in the "default" namespace:
+{
+  "resource": "deployment",
+  "name": "my-deployment",
+  "namespace": "default"
+}
+`
+
 // PatchResourceToolDescription contains the documentation for the Patch Kubernetes Resource tool.
 // It is formatted in Markdown.
 const PatchResourceToolDescription = `
@@ -1024,6 +1040,11 @@ func Install(ctx context.Context, s *mcp.Server, c *config.Config) error {
 		Name:        "kube_describe",
 		Description: DescribeResourceToolDescription,
 	}, h.describeResource)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "kube_rollout_status",
+		Description: RolloutStatusToolDescription,
+	}, h.rolloutStatus)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "kube_can_i",
@@ -1639,6 +1660,12 @@ type describeResourceArgs struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+type rolloutStatusArgs struct {
+	Resource  string `json:"resource"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+}
+
 func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args *getPodLogsArgs) (*mcp.CallToolResult, any, error) {
 	podLogOpts := &corev1.PodLogOptions{
 		Container: args.Container,
@@ -1661,6 +1688,82 @@ func (h *handlers) getPodLogs(ctx context.Context, _ *mcp.CallToolRequest, args 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: logs},
+		},
+	}, nil, nil
+}
+func (h *handlers) rolloutStatus(ctx context.Context, _ *mcp.CallToolRequest, args *rolloutStatusArgs) (*mcp.CallToolResult, any, error) {
+	gvr, err := h.findGVR(args.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var obj *unstructured.Unstructured
+	if args.Namespace != "" {
+		obj, err = h.dyn.Resource(gvr).Namespace(args.Namespace).Get(ctx, args.Name, metav1.GetOptions{})
+	} else {
+		obj, err = h.dyn.Resource(gvr).Get(ctx, args.Name, metav1.GetOptions{})
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	var output string
+	switch obj.GetKind() {
+	case "Deployment":
+		status, ok := obj.Object["status"].(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to get status for deployment")
+		}
+		spec, ok := obj.Object["spec"].(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to get spec for deployment")
+		}
+
+		replicas, _, _ := unstructured.NestedInt64(spec, "replicas")
+		updatedReplicas, _, _ := unstructured.NestedInt64(status, "updatedReplicas")
+		unavailableReplicas, _, _ := unstructured.NestedInt64(status, "unavailableReplicas")
+
+		if updatedReplicas == replicas && unavailableReplicas == 0 {
+			output = fmt.Sprintf("deployment %q successfully rolled out", obj.GetName())
+		} else {
+			output = fmt.Sprintf("deployment %q is not fully rolled out. Status: %d/%d updated, %d unavailable", obj.GetName(), updatedReplicas, replicas, unavailableReplicas)
+		}
+	case "DaemonSet":
+		status, ok := obj.Object["status"].(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to get status for daemonset")
+		}
+		desiredNumberScheduled, _, _ := unstructured.NestedInt64(status, "desiredNumberScheduled")
+		numberReady, _, _ := unstructured.NestedInt64(status, "numberReady")
+
+		if numberReady == desiredNumberScheduled {
+			output = fmt.Sprintf("daemonset %q successfully rolled out", obj.GetName())
+		} else {
+			output = fmt.Sprintf("daemonset %q is not fully rolled out. Status: %d/%d ready", obj.GetName(), numberReady, desiredNumberScheduled)
+		}
+	case "StatefulSet":
+		status, ok := obj.Object["status"].(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to get status for statefulset")
+		}
+		spec, ok := obj.Object["spec"].(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to get spec for statefulset")
+		}
+		replicas, _, _ := unstructured.NestedInt64(spec, "replicas")
+		updatedReplicas, _, _ := unstructured.NestedInt64(status, "updatedReplicas")
+
+		if updatedReplicas == replicas {
+			output = fmt.Sprintf("statefulset %q successfully rolled out", obj.GetName())
+		} else {
+			output = fmt.Sprintf("statefulset %q is not fully rolled out. Status: %d/%d updated", obj.GetName(), updatedReplicas, replicas)
+		}
+	default:
+		return nil, nil, fmt.Errorf("rollout status not supported for resource of kind %q", obj.GetKind())
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: output},
 		},
 	}, nil, nil
 }

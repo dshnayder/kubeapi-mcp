@@ -217,6 +217,21 @@ To describe a pod named "my-pod" in the "default" namespace, you would use the f
 - `name`: `my-pod`
 - `namespace`: `default`
 
+### kube_rollout_status
+
+This tool watches the status of a resource rollout until it is complete.
+
+**When to use:**
+- To check the status of a Deployment, DaemonSet, or StatefulSet to see if the rollout has been successful.
+
+**Example:**
+
+To get the rollout status of a deployment named "my-deployment" in the "default" namespace, you would use the following arguments:
+
+- `resource`: `deployment`
+- `name`: `my-deployment`
+- `namespace`: `default`
+
 ### gke_get_cluster
 
 This tool gets the details of a specific GKE cluster. This is equivalent to running "gcloud container clusters describe".
